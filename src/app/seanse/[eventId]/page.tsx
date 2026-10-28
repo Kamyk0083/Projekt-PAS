@@ -64,7 +64,7 @@ export default async function ScreeningPage({ params, searchParams }: Props) {
         event={event}
         initialTaken={takenSeats}
         initialSeat={fotel?.toUpperCase() ?? null}
-        ttlMinutes={Math.round(config.reservationTtlMs / 60_000)}
+        ttlMinutes={Math.max(1, Math.round(config.reservationTtlMs / 60_000))}
       />
     </div>
   );

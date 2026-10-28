@@ -1,0 +1,220 @@
+.phase {
+  animation: phase-in 360ms var(--ease-out) both;
+}
+
+@keyframes phase-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+    filter: blur(6px);
+  }
+}
+
+.grid {
+  display: grid;
+  gap: 40px;
+  padding-top: clamp(32px, 6vw, 72px);
+}
+
+@media (min-width: 960px) {
+  .grid {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: 64px;
+    align-items: start;
+  }
+}
+
+/* --- licznik (karta B) --------------------------------------------------- */
+
+.hero {
+  display: grid;
+  gap: 20px;
+  --clock: var(--accent);
+}
+
+.hero[data-urgent] {
+  --clock: var(--warn);
+}
+
+.hero h1 {
+  display: grid;
+  gap: 6px;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--ink-2);
+}
+
+.clock {
+  font-size: clamp(4.5rem, 14vw, 6rem);
+  line-height: 1;
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  color: var(--clock);
+  transition: color 400ms ease;
+}
+
+.progress {
+  height: 2px;
+  border-radius: 2px;
+  background: var(--line-soft);
+  overflow: hidden;
+  max-width: 28rem;
+}
+
+.progress span {
+  display: block;
+  height: 100%;
+  background: var(--clock);
+  transform-origin: left center;
+  transition:
+    transform 260ms linear,
+    background-color 400ms ease;
+}
+
+.lede {
+  color: var(--ink-2);
+  max-width: 40ch;
+}
+
+.side {
+  display: grid;
+  gap: 20px;
+  padding: 24px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-raised);
+}
+
+.summary {
+  display: grid;
+  margin: 0;
+}
+
+.summary > div {
+  display: grid;
+  grid-template-columns: 9.5rem minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.summary > div + div {
+  border-top: 1px solid var(--line-soft);
+}
+
+.summary dt {
+  color: var(--ink-3);
+  font-size: 14px;
+}
+
+.summary dd {
+  margin: 0;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.email {
+  color: var(--ink-2);
+}
+
+@media (max-width: 420px) {
+  .summary > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
+
+.buy {
+  width: 100%;
+  min-height: 56px;
+  font-size: 16px;
+}
+
+.note {
+  font-size: 13px;
+  color: var(--ink-3);
+  text-align: center;
+}
+
+.error {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  font-size: 14px;
+}
+
+.error svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--danger);
+}
+
+/* --- wygasła ------------------------------------------------------------- */
+
+.expired {
+  display: grid;
+  gap: 18px;
+  justify-items: start;
+  max-width: 38rem;
+  padding-top: clamp(48px, 9vw, 112px);
+}
+
+.expired h1 {
+  font-size: clamp(2rem, 5vw, 3.25rem);
+  letter-spacing: -0.03em;
+}
+
+.expired p {
+  color: var(--ink-2);
+  font-size: 17px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+/* --- kupiony ------------------------------------------------------------- */
+
+.purchased {
+  display: grid;
+  gap: 24px;
+  justify-items: start;
+  max-width: 34rem;
+  margin: 0 auto;
+  padding-top: clamp(32px, 6vw, 64px);
+}
+
+.purchasedHead {
+  display: grid;
+  gap: 8px;
+}
+
+.purchasedHead h1 {
+  font-size: clamp(2rem, 5vw, 3rem);
+  letter-spacing: -0.03em;
+}
+
+.purchasedHead p {
+  color: var(--ink-2);
+}
+
+.mail {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.mail[data-status="sent"] {
+  color: var(--ink);
+}
+
+.mail[data-status="failed"] {
+  color: var(--warn);
+}

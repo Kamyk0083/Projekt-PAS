@@ -1,0 +1,124 @@
+.ticket {
+  --notch: 13px;
+  --cut: 106px; /* wysokość odcinka z kodem */
+  width: 100%;
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(120% 80% at 100% 0%, oklch(0.9 0.175 124 / 0.08), transparent 55%),
+    var(--surface);
+  /* wycięcia po bokach na linii perforacji */
+  mask:
+    radial-gradient(circle var(--notch) at 0 calc(100% - var(--cut)), #0000 97%, #000) left / 51% 100% no-repeat,
+    radial-gradient(circle var(--notch) at 100% calc(100% - var(--cut)), #0000 97%, #000) right / 51% 100% no-repeat;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ticket {
+    animation: print 900ms var(--ease-in-out) 120ms both;
+  }
+}
+
+@keyframes print {
+  from {
+    clip-path: inset(0 0 100% 0 round var(--radius-lg));
+  }
+  to {
+    clip-path: inset(0 0 0 0 round var(--radius-lg));
+  }
+}
+
+.main {
+  display: grid;
+  gap: 6px;
+  padding: 26px 28px 24px;
+}
+
+.brand {
+  font-size: 13px;
+  color: var(--ink-3);
+  margin-bottom: 10px;
+}
+
+.main h2 {
+  font-size: clamp(1.75rem, 5vw, 2.25rem);
+  letter-spacing: -0.03em;
+}
+
+.when {
+  color: var(--ink-2);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0 0;
+}
+
+.facts dt {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.facts dd {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-size: clamp(1.75rem, 6vw, 2.25rem);
+  line-height: 1.1;
+  font-weight: 500;
+}
+
+.stub {
+  height: var(--cut);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 28px;
+  border-top: 2px dashed var(--line);
+  margin: 0 var(--notch);
+  padding-left: calc(28px - var(--notch));
+  padding-right: calc(28px - var(--notch));
+}
+
+.codeLabel {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.code {
+  font-size: clamp(1.25rem, 5vw, 1.625rem);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  font-size: 14px;
+  font-weight: 500;
+  transition: background-color 160ms ease, transform 160ms var(--ease-out);
+}
+
+.copy:active {
+  transform: scale(0.96);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .copy:hover {
+    background: var(--line);
+  }
+}
+
+@media (max-width: 380px) {
+  .copy span {
+    display: none;
+  }
+}

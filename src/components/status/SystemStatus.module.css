@@ -1,0 +1,156 @@
+.wrap {
+  display: grid;
+  gap: 40px;
+  padding-top: clamp(40px, 6vw, 72px);
+}
+
+.head {
+  display: grid;
+  gap: 12px;
+  max-width: 40rem;
+}
+
+.head h1 {
+  font-size: clamp(2rem, 5vw, 3rem);
+  letter-spacing: -0.03em;
+}
+
+.head p {
+  color: var(--ink-2);
+}
+
+.head .offline {
+  color: var(--warn);
+}
+
+.skeleton {
+  height: 320px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(90deg, var(--bg-raised), var(--surface), var(--bg-raised));
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.sections {
+  display: grid;
+  gap: 48px 64px;
+}
+
+@media (min-width: 900px) {
+  .sections {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  }
+}
+
+.sections section {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.sections h2 {
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+
+.breaker {
+  padding: 24px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-raised);
+  --tone: var(--accent);
+}
+
+.breaker[data-state="OPEN"] {
+  --tone: var(--danger);
+}
+
+.breaker[data-state="HALF_OPEN"] {
+  --tone: var(--warn);
+}
+
+.breaker p {
+  color: var(--ink-2);
+}
+
+.breaker .state {
+  font-size: clamp(2rem, 5vw, 2.75rem);
+  font-weight: 500;
+  color: var(--tone);
+  letter-spacing: -0.02em;
+}
+
+.small {
+  font-size: 13px;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+@media (max-width: 520px) {
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.stats dt {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.stats dd {
+  margin: 4px 0 0;
+  font-size: 32px;
+  line-height: 1;
+}
+
+.stats [data-warn] dd {
+  color: var(--warn);
+}
+
+.rows,
+.dlq {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+
+.rows li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  font-size: 15px;
+}
+
+.rows li + li {
+  border-top: 1px solid var(--line-soft);
+}
+
+.rows li span:first-child {
+  color: var(--ink-2);
+}
+
+.dlq {
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.dlq li {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+}
