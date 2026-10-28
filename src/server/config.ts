@@ -29,8 +29,8 @@ export const config = {
   get rateLimit() {
     return {
       enabled: bool("RATE_LIMIT_ENABLED", true),
-      capacity: num("RATE_LIMIT_CAPACITY", 30),
-      refillPerSec: num("RATE_LIMIT_REFILL_PER_SEC", 1),
+      capacity: num("RATE_LIMIT_CAPACITY", 40),
+      refillPerSec: num("RATE_LIMIT_REFILL_PER_SEC", 2),
     };
   },
   get mailer() {

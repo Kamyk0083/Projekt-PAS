@@ -128,6 +128,17 @@ export async function reserve(input: ReservationInput, idempotencyKey?: string):
     }
     const field = duplicateKeyField(err);
     if (field === "_id" || field === undefined) {
+      // Identyczne żądanie bez klucza (podwójny klik, retry innego klienta API): ten sam fotel
+      // trzyma już ważna rezerwacja tej samej osoby, więc to ponowienie, a nie nowa rezerwacja.
+      const same = await reservations.findOne({
+        eventId: input.eventId,
+        seatId: input.seatId,
+        email: input.email,
+        customerName: input.customerName,
+        status: "held",
+        expiresAt: { $gt: new Date() },
+      });
+      if (same) return { reservationId: same._id, expiresAt: same.expiresAt.toISOString(), replayed: true };
       throw new AppError(409, "SEAT_TAKEN", `Fotel ${input.seatId} jest już zajęty. Wybierz inny.`);
     }
     throw err;
@@ -187,7 +198,10 @@ export async function purchase(rawId: string): Promise<{ code: string; replayed:
         { $set: { status: "sold", expiresAt: null, updatedAt: now } },
         { session },
       );
-      if (seat.matchedCount !== 1) throw new Error(`Utracona blokada fotela dla rezerwacji ${reservationId}`);
+      // Fotel przejęty przez kogoś innego po wygaśnięciu: transakcja się wycofa, bilet nie powstanie.
+      if (seat.matchedCount !== 1) {
+        throw new AppError(410, "RESERVATION_EXPIRED", "Rezerwacja wygasła, fotel wrócił do puli.");
+      }
 
       await jobs.insertOne(
         {

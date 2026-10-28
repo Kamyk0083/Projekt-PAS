@@ -33,7 +33,7 @@ npm run build
 | B | `POST /api/reservations` `{ eventId, seatId, customerName, email }` | `201 { reservationId, expiresAt }` |
 | C | `POST /api/reservations/:id/purchase` | `200 { code }` albo `410`, gdy rezerwacja wygasła |
 
-Błędy mają postać `{ error, code, retryable }`: `400 VALIDATION`, `404 NOT_FOUND`, `409 SEAT_TAKEN`, `410 RESERVATION_EXPIRED`, `422 IDEMPOTENCY_MISMATCH`, `429 RATE_LIMITED` i `503 OVERLOADED / DEPENDENCY_UNAVAILABLE` (oba z `Retry-After`).
+Błędy mają postać `{ error, errorCode, retryable }` (celowo nie `code`, bo `code` to kod biletu): `400 VALIDATION`, `404 NOT_FOUND`, `409 SEAT_TAKEN`, `410 RESERVATION_EXPIRED`, `422 IDEMPOTENCY_MISMATCH`, `429 RATE_LIMITED` i `503 OVERLOADED / DEPENDENCY_UNAVAILABLE` (oba z `Retry-After`).
 
 `seatId` ma format `"F7"` (rząd A–H, miejsce 1–10). Dane przykładowe: 3 seanse w 2 salach po 8×10 foteli.
 
@@ -88,6 +88,34 @@ Między ekranami przekazujemy tylko identyfikatory w adresie (`eventId`, `seatId
 - Duplikaty: dostawca deduplikuje po kluczu idempotencji równym ID zadania, więc mail wychodzi raz.
 - Retry z backoffem, limit 5 prób, potem dead letter queue. Zatruta wiadomość nie blokuje kolejki.
 - Sprzątanie wygasłych rezerwacji to też praca w tle, ale poprawność od niej nie zależy: zapytania i tak traktują wygasłe blokady jak wolne fotele.
+
+## Kryteria etapu I: jak je spełniamy
+
+| Kryterium | Zachowanie | Test |
+| --- | --- | --- |
+| A1 | `GET /api/events/nie-ma-takiego` → `404` | `tests/criteria.test.ts` |
+| A2 | `takenSeats` filtruje po `expiresAt > teraz`, więc miejsce znika natychmiast, bez czekania na workera | jw. |
+| B1 | identyczny POST (z kluczem albo bez) zwraca tę samą rezerwację (`201`, potem `200`), także równolegle | jw. |
+| B2 | 20 równoczesnych prób: dokładnie jedna `201`, reszta `409` | jw. |
+| B3 | złe wydarzenie `404`, złe miejsce, puste imię i e-mail oraz zły JSON `400`; nic nie trafia do bazy | jw. |
+| B4 | wygasła blokada jest od razu do przejęcia (warunkowy upsert) | jw. |
+| B5 | token bucket na IP (40 naraz, +2/s): 100 żądań w 10 s dostaje `429` z `Retry-After`, a inny IP rezerwuje normalnie | jw. |
+| C1 | zakup 2× po kolei i równolegle zwraca ten sam kod i tworzy jeden bilet | jw. |
+| C2 | zakup X i rezerwacja Y w chwili wygaśnięcia: transakcje na tym samym dokumencie fotela, zawsze jeden właściciel, bez `5xx` | jw. (5 rund) |
+| C3 | `abc` i nieistniejące id → `404` | jw. |
+| C4 | zakup po czasie → `410`; kupiony fotel ma status `sold` i nigdy nie wraca do puli | jw. |
+
+Sprawdzenie na żywym adresie (te same ataki po HTTP, ok. 5 minut):
+
+```bash
+node scripts/chaos.mjs https://adres-firmy.example
+```
+
+### Wdrożenie: warunek wstępny
+
+- **Trwała baza jest obowiązkowa.** Baza w pamięci nadaje się tylko lokalnie; na Vercelu każda instancja funkcji miałaby własną bazę. Ustaw `MONGODB_URI` na MongoDB Atlas (darmowy klaster M0 to replica set i obsługuje transakcje).
+- **Tryb testowy:** na czas testów ustaw `RESERVATION_TTL_SECONDS=120`. Skrypt chaosu ostrzega, gdy `expiresAt` wypada dalej niż za 2 minuty, a ustawiony czas widać też na `/status`.
+- Na serverless worker nie działa w tle stale: mail wysyła się zaraz po zakupie (`after()`), a resztę zadań obsługuje `GET /api/cron/worker`. Kryteria od workera nie zależą.
 
 ## Struktura
 

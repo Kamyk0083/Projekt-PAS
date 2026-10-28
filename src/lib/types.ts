@@ -43,6 +43,6 @@ export type ReservationView = {
 
 export type ApiErrorBody = {
   error: string;
-  code: string;
+  errorCode: string; // nie "code": w kontrakcie "code" to kod biletu
   retryable?: boolean;
 };

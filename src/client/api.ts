@@ -89,7 +89,7 @@ export async function api<T>(path: string, opts: Options = {}): Promise<T> {
     const body = (await res.json().catch(() => null)) as ApiErrorBody | null;
     lastError = new ApiError(
       res.status,
-      body?.code ?? "HTTP_" + res.status,
+      body?.errorCode ?? "HTTP_" + res.status,
       body?.error ?? "Nie udało się wykonać operacji.",
       RETRYABLE_STATUS.has(res.status),
     );

@@ -45,7 +45,7 @@ export function json(body: unknown, init: ResponseInit = {}): Response {
 }
 
 export function errorResponse(err: AppError): Response {
-  const body: ApiErrorBody = { error: err.message, code: err.code, retryable: err.opts.retryable ?? false };
+  const body: ApiErrorBody = { error: err.message, errorCode: err.code, retryable: err.opts.retryable ?? false };
   const headers: Record<string, string> = {};
   if (err.opts.retryAfterSec) headers["Retry-After"] = String(err.opts.retryAfterSec);
   return json(body, { status: err.status, headers });
