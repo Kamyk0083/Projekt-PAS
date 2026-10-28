@@ -102,6 +102,8 @@ const g = globalThis as typeof globalThis & {
 
 async function resolveUri(): Promise<{ uri: string; memory: boolean }> {
   if (config.mongoUri) return { uri: config.mongoUri, memory: false };
+  // Na Vercelu baza w pamięci nie ma sensu (każda instancja miałaby własną): głośny błąd zamiast cichej awarii.
+  if (process.env.VERCEL) throw new Error("Brak MONGODB_URI: ustaw ją w Vercel > Settings > Environment Variables.");
   // Brak MONGODB_URI: baza w pamięci jako replica set (transakcje wymagają repl setu).
   const { MongoMemoryReplSet } = await import("mongodb-memory-server");
   const replSet = await MongoMemoryReplSet.create({
@@ -118,7 +120,8 @@ async function init(): Promise<DbState> {
     serverSelectionTimeoutMS: 4000,
     connectTimeoutMS: 4000,
     socketTimeoutMS: 10_000,
-    maxPoolSize: 50,
+    // Serverless ma wiele krótkich instancji, a darmowy Atlas (M0) limit ~500 połączeń.
+    maxPoolSize: process.env.VERCEL ? 10 : 50,
     retryWrites: true,
     retryReads: true,
   });
