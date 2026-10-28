@@ -8,3 +8,6 @@ next-env.d.ts
 .data
 coverage
 .playwright-mcp
+
+.vercel
+.env*
