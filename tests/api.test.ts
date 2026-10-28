@@ -5,6 +5,7 @@ import { GET as getEvent } from "@/app/api/events/[id]/route";
 import { POST as createReservation } from "@/app/api/reservations/route";
 import { GET as getReservation } from "@/app/api/reservations/[id]/route";
 import { POST as purchaseReservation } from "@/app/api/reservations/[id]/purchase/route";
+import { GET as getStatus } from "@/app/api/status/route";
 import { runWorkerTick, stopWorker } from "@/server/worker";
 
 const EVENT = "nocny-pociag";
@@ -200,6 +201,28 @@ describe("praca w tle", () => {
     await runWorkerTick();
     expect(await c.deadLetters.countDocuments({ _id: "ticket-email:poison" })).toBe(1);
     expect((await c.jobs.findOne({ _id: "ticket-email:poison" }))?.status).toBe("dead");
+  });
+});
+
+describe("prywatność", () => {
+  it("/api/status nie zdradza ID rezerwacji (działa jak link do biletu)", async () => {
+    const c = await collections();
+    const reservationId = "3f2b8c1e-9d4a-4e6b-8a7c-1b2c3d4e5f60";
+    const now = new Date();
+    await c.jobs.insertOne({
+      _id: `ticket-email:${reservationId}`,
+      topic: "ticket-email",
+      payload: { reservationId },
+      status: "pending",
+      deliveryCount: 0,
+      visibleAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await runWorkerTick(); // brak rezerwacji -> błąd trwały -> DLQ
+    expect(await c.deadLetters.countDocuments()).toBe(1);
+    const body = await (await getStatus(new Request("http://test/api/status"), undefined as never)).text();
+    expect(body).not.toContain(reservationId);
   });
 });
 

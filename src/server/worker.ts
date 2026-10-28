@@ -184,6 +184,12 @@ export async function queueStats() {
     done: counts.done ?? 0,
     deadLetters: dead,
     mailsSent: sent,
-    recentDeadLetters: recentDead.map((d) => ({ id: d._id, lastError: d.lastError, failedAt: d.failedAt.toISOString() })),
+    // /status jest publiczny: ID zadania zawiera ID rezerwacji, a ono działa jak link do biletu.
+    // Pokazujemy tylko typ zadania i błąd z wyciętymi identyfikatorami.
+    recentDeadLetters: recentDead.map((d) => ({
+      topic: d.topic,
+      lastError: d.lastError.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "…"),
+      failedAt: d.failedAt.toISOString(),
+    })),
   };
 }

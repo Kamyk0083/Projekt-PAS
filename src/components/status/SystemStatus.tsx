@@ -17,7 +17,7 @@ type Status = {
     done: number;
     deadLetters: number;
     mailsSent: number;
-    recentDeadLetters: { id: string; lastError: string; failedAt: string }[];
+    recentDeadLetters: { topic: string; lastError: string; failedAt: string }[];
   };
   rateLimit: { enabled: boolean; capacity: number; refillPerSec: number };
 };
@@ -91,9 +91,9 @@ export function SystemStatus() {
             </dl>
             {status.queue.recentDeadLetters.length > 0 && (
               <ul className={styles.dlq}>
-                {status.queue.recentDeadLetters.map((d) => (
-                  <li key={d.id}>
-                    <span className="mono">{d.id}</span>
+                {status.queue.recentDeadLetters.map((d, i) => (
+                  <li key={`${d.failedAt}-${i}`}>
+                    <span className="mono">{d.topic}</span>
                     <span>{d.lastError}</span>
                   </li>
                 ))}
