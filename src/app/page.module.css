@@ -1,0 +1,229 @@
+.intro {
+  padding: clamp(40px, 7vw, 88px) 0 clamp(28px, 4vw, 48px);
+  display: grid;
+  gap: 14px;
+  max-width: 36rem;
+}
+
+.intro h1 {
+  font-size: clamp(2.5rem, 6vw, 4.25rem);
+  letter-spacing: -0.035em;
+  font-weight: 650;
+}
+
+.intro p {
+  color: var(--ink-2);
+  font-size: 17px;
+}
+
+.empty {
+  color: var(--ink-2);
+  padding: 48px 0;
+}
+
+.day + .day {
+  margin-top: 56px;
+}
+
+.dayLabel {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink-2);
+  letter-spacing: 0;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.list > li {
+  animation: rise 520ms var(--ease-out) both;
+  animation-delay: calc(var(--i) * 70ms + 80ms);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+.row {
+  --pad: 18px;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  grid-template-areas:
+    "poster info cta"
+    "poster hall cta";
+  column-gap: 18px;
+  row-gap: 14px;
+  align-items: center;
+  padding: var(--pad);
+  margin: 0 calc(var(--pad) * -1);
+  border-radius: var(--radius-lg);
+  transition: background-color 200ms ease;
+}
+
+.row + .row {
+  margin-top: 4px;
+}
+
+.poster {
+  grid-area: poster;
+  align-self: start;
+}
+
+.info {
+  grid-area: info;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.time {
+  font-size: 15px;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.title {
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+
+.meta {
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.synopsis {
+  margin-top: 10px;
+  color: var(--ink-2);
+  max-width: 52ch;
+}
+
+.hall {
+  grid-area: hall;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 14px;
+}
+
+.hall p {
+  display: grid;
+  gap: 2px;
+}
+
+.hallName {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.free {
+  color: var(--ink-2);
+}
+
+.soldOut {
+  color: var(--danger);
+}
+
+.cta {
+  grid-area: cta;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--ink);
+  transition:
+    background-color 200ms ease,
+    color 200ms ease,
+    box-shadow 200ms ease,
+    transform 160ms var(--ease-out);
+}
+
+.cta svg {
+  transition: transform 220ms var(--ease-out);
+}
+
+.ctaLabel {
+  display: none;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.row:active .cta {
+  transform: scale(0.96);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .row:hover {
+    background: var(--bg-raised);
+  }
+  .row:hover .cta {
+    background: var(--accent);
+    color: var(--accent-ink);
+    box-shadow: none;
+  }
+  .row:hover .cta svg {
+    transform: translateX(2px);
+  }
+}
+
+.row:focus-visible {
+  outline-offset: 0;
+  border-radius: var(--radius-lg);
+}
+
+@media (min-width: 760px) {
+  .row {
+    grid-template-columns: 88px minmax(0, 1.4fr) minmax(0, 1fr) auto;
+    grid-template-areas: "poster info hall cta";
+    column-gap: 28px;
+    --pad: 20px;
+  }
+
+  .cta {
+    width: auto;
+    padding: 0 18px;
+  }
+
+  .ctaLabel {
+    display: inline;
+  }
+
+  .title {
+    font-size: 24px;
+  }
+
+  .lead {
+    grid-template-columns: 200px minmax(0, 1.4fr) minmax(0, 1fr) auto;
+    align-items: end;
+    padding-top: 24px;
+    padding-bottom: 24px;
+  }
+
+  .lead .title {
+    font-size: clamp(28px, 3.2vw, 40px);
+    letter-spacing: -0.03em;
+  }
+
+  .lead .time {
+    font-size: 17px;
+  }
+}
+
+@media (min-width: 1100px) {
+  .lead {
+    grid-template-columns: 240px minmax(0, 1.5fr) minmax(0, 1fr) auto;
+  }
+}

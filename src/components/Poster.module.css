@@ -1,0 +1,22 @@
+.poster {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  isolation: isolate;
+}
+
+.img {
+  object-fit: cover;
+  filter: grayscale(1) contrast(1.08) brightness(0.92);
+}
+
+.poster::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, oklch(0.4 0.08 265 / 0.1), oklch(0.18 0.05 265 / 0.55));
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}

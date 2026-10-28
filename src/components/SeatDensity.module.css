@@ -1,0 +1,22 @@
+.grid {
+  --cell: 6px;
+  display: grid;
+  gap: 2px;
+  width: max-content;
+}
+
+.free,
+.taken {
+  width: var(--cell);
+  height: var(--cell);
+  border-radius: 1.5px;
+}
+
+.free {
+  background: var(--ink-3);
+}
+
+.taken {
+  background: var(--seat-taken);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+}
