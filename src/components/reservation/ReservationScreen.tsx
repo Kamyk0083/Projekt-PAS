@@ -1,10 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowCounterClockwise, CircleNotch, Warning } from "@phosphor-icons/react";
 import { api, ApiError } from "@/client/api";
-import { usePolling } from "@/client/hooks";
 import { formatCountdown, formatTime, relativeDayLabel } from "@/lib/format";
 import { seatLabel } from "@/lib/hall";
 import type { ReservationView } from "@/lib/types";
@@ -38,19 +37,6 @@ export function ReservationScreen({ initial }: { initial: ReservationView }) {
     return () => clearInterval(id);
   }, [phase, expiresAt]);
 
-  const reload = useCallback(async () => {
-    try {
-      const fresh = await api<ReservationView>(`/api/reservations/${view.reservationId}`, { retries: 1 });
-      setView(fresh);
-      return true;
-    } catch {
-      return false;
-    }
-  }, [view.reservationId]);
-
-  // Mail z biletem wychodzi w tle. Odświeżamy jego status, dopóki nie wyjdzie.
-  usePolling(reload, 3000, phase === "purchased" && view.emailStatus === "pending");
-
   async function buy() {
     if (buying) return;
     setBuying(true);
@@ -62,9 +48,8 @@ export function ReservationScreen({ initial }: { initial: ReservationView }) {
         idempotent: true,
         retries: 4,
       });
-      setView((v) => ({ ...v, status: "purchased", code, emailStatus: "pending" }));
+      setView((v) => ({ ...v, status: "purchased", code }));
       setPhase("purchased");
-      void reload();
     } catch (err) {
       if (err instanceof ApiError && err.code === "RESERVATION_EXPIRED") setPhase("expired");
       else setError(err instanceof ApiError ? err.message : "Nie udało się kupić biletu. Spróbuj ponownie.");
@@ -207,14 +192,9 @@ function Expired({ view }: { view: ReservationView }) {
   );
 }
 
+// Maili na razie nie wysyłamy naprawdę (dostawca w tle jest symulowany), więc ekran
+// nie może tego obiecywać: jedynym nośnikiem biletu jest kod na tej stronie.
 function Purchased({ view }: { view: ReservationView }) {
-  const emailText = {
-    sent: `Wysłaliśmy bilet na ${view.emailMasked}.`,
-    pending: `Wysyłamy bilet na ${view.emailMasked}. Może to potrwać kilka minut.`,
-    failed: "Nie udało się wysłać maila z biletem. Zachowaj kod z tej strony, wystarczy przy wejściu.",
-    none: "",
-  }[view.emailStatus];
-
   return (
     <div className={styles.purchased}>
       <div className={styles.purchasedHead}>
@@ -222,9 +202,8 @@ function Purchased({ view }: { view: ReservationView }) {
         <p>Pokaż kod przy wejściu do sali. Do zobaczenia w kinie.</p>
       </div>
       <Ticket view={view} />
-      <p className={styles.mail} data-status={view.emailStatus} role="status">
-        {view.emailStatus === "pending" && <CircleNotch size={16} weight="bold" className="spin" aria-hidden />}
-        {emailText}
+      <p className={styles.mail}>
+        Zapisz kod albo zrób zrzut ekranu. Ta strona zostaje pod tym samym adresem, więc możesz do niej wrócić.
       </p>
       <Link className="btn btn-ghost" href="/">
         Wróć do repertuaru

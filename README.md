@@ -73,7 +73,7 @@ Między ekranami przekazujemy tylko identyfikatory w adresie (`eventId`, `seatId
 **E04 Gdy zależność pada**
 - Timeout na każdym wywołaniu: `fetch` w kliencie (`AbortSignal.timeout`), operacje bazy (`maxTimeMS`, `serverSelectionTimeoutMS`) i dostawca maili.
 - Circuit breaker dostawcy maili (CLOSED → OPEN → HALF_OPEN). Gdy jest otwarty, worker w ogóle nie pobiera zadań mailowych.
-- Fallback, który nie kłamie: bilet i kod są gotowe od razu, a status maila jest uczciwy („wysyłamy”, „wysłaliśmy”, „nie udało się, zachowaj kod”).
+- Fallback, który nie kłamie: bilet i kod są gotowe od razu i nie zależą od maila. Dostawca maili jest symulowany (wymagania nie każą nic wysyłać), więc interfejs nie obiecuje wysyłki, tylko każe zachować kod.
 - Łagodna degradacja: gdy odświeżenie planu sali się nie uda, zostaje ostatni znany stan z komunikatem. Gdy baza nie odpowiada, dostajesz szybkie `503` z `Retry-After` i stronę z przyciskiem „Spróbuj ponownie”.
 
 **E05 Przeciążenie**

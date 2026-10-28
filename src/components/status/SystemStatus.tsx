@@ -23,7 +23,7 @@ type Status = {
 };
 
 const BREAKER_TEXT = {
-  CLOSED: "Działa. Maile z biletami wychodzą normalnie.",
+  CLOSED: "Działa. Zadania z kolejki przechodzą normalnie.",
   OPEN: "Wstrzymany. Dostawca maili nie odpowiada, więc go nie wołamy i czekamy.",
   HALF_OPEN: "Próba. Puszczamy jedno zapytanie, żeby sprawdzić, czy dostawca wrócił.",
 };
@@ -58,8 +58,8 @@ export function SystemStatus() {
       <header className={styles.head}>
         <h1>Stan systemu</h1>
         <p>
-          Jak kasa radzi sobie z awariami: kolejka maili z biletami, bezpiecznik dostawcy maili, pule zapytań i limit
-          żądań. Dane odświeżają się same.
+          Jak kasa radzi sobie z awariami: praca w tle przez kolejkę, bezpiecznik zawodnej zależności, pule zapytań i
+          limit żądań. Dostawca maili jest symulowany: nic nie trafia do prawdziwych skrzynek. Dane odświeżają się same.
         </p>
         {offline && (
           <p className={styles.offline} role="status">
@@ -73,7 +73,7 @@ export function SystemStatus() {
       ) : (
         <div className={styles.sections}>
           <section className={styles.breaker} data-state={status.mailer.state}>
-            <h2>Dostawca maili</h2>
+            <h2>Dostawca maili (symulowany)</h2>
             <p className={`${styles.state} mono`}>{status.mailer.state}</p>
             <p>{BREAKER_TEXT[status.mailer.state]}</p>
             <p className={styles.small}>
@@ -82,11 +82,11 @@ export function SystemStatus() {
           </section>
 
           <section>
-            <h2>Kolejka maili z biletami</h2>
+            <h2>Kolejka zadań w tle</h2>
             <dl className={styles.stats}>
               <Stat label="Czeka" value={status.queue.pending} />
               <Stat label="W trakcie" value={status.queue.processing} />
-              <Stat label="Wysłane" value={status.queue.mailsSent} />
+              <Stat label="Wykonane" value={status.queue.mailsSent} />
               <Stat label="Odłożone (DLQ)" value={status.queue.deadLetters} warn={status.queue.deadLetters > 0} />
             </dl>
             {status.queue.recentDeadLetters.length > 0 && (

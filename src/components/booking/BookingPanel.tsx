@@ -247,7 +247,7 @@ function ReservationForm({ event, seat, ttlMinutes, onClose, onConflict }: FormP
           disabled={pending}
         />
         <p id={`${formId}-email-hint`} className={styles.hint}>
-          Na ten adres wyślemy bilet.
+          Przypiszemy do niego rezerwację.
         </p>
         {touched.email && errors.email && (
           <p id={`${formId}-email-err`} className={styles.fieldError}>

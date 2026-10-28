@@ -211,10 +211,3 @@
   color: var(--ink-2);
 }
 
-.mail[data-status="sent"] {
-  color: var(--ink);
-}
-
-.mail[data-status="failed"] {
-  color: var(--warn);
-}
