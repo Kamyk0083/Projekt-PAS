@@ -1,0 +1,16 @@
+.center {
+  min-height: 60dvh;
+  display: grid;
+  place-content: center;
+  justify-items: start;
+  gap: 16px;
+  max-width: 34rem;
+}
+
+.center h1 {
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+}
+
+.center p {
+  color: var(--ink-2);
+}
