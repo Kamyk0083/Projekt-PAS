@@ -39,6 +39,8 @@ const person = (n: number) => ({ customerName: `Klient ${n}`, email: `klient${n}
 
 beforeAll(async () => {
   process.env.WORKER_ENABLED = "false";
+  // Kryteria etapu I sprawdzają zakup bez płatności (POST /purchase).
+  process.env.LEGACY_PURCHASE_WITHOUT_PAYMENT = "true";
   process.env.MAILER_FAILURE_RATE = "0";
   process.env.MAILER_LATENCY_MS = "5";
   await collections();
@@ -197,7 +199,7 @@ describe("C. Zakup", () => {
       expect(
         await reservations.countDocuments({
           seatId,
-          $or: [{ status: "purchased" }, { status: "held", expiresAt: { $gt: new Date() } }],
+          $or: [{ status: "paid" }, { status: "held", expiresAt: { $gt: new Date() } }],
         }),
       ).toBeLessThanOrEqual(1);
     }

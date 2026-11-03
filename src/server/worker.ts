@@ -1,7 +1,7 @@
 import { collections, isDuplicateKey, type JobDoc } from "./db";
 import { CircuitOpenError } from "./circuitBreaker";
 import { mailBreaker, sendMail } from "./mailer";
-import { sweepExpired } from "./reservations";
+import { isPaid, sweepExpired } from "./reservations";
 import { seatLabel } from "@/lib/hall";
 
 // Praca w tle (E06). Kolejka to kolekcja `jobs` (zasilana przez transactional outbox przy zakupie).
@@ -57,7 +57,7 @@ async function deadLetter(job: JobDoc, reason: string) {
 async function handleTicketEmail(job: JobDoc) {
   const { reservations, events } = await collections();
   const reservation = await reservations.findOne({ _id: job.payload.reservationId });
-  if (!reservation || reservation.status !== "purchased" || !reservation.code) {
+  if (!reservation || !isPaid(reservation) || !reservation.code) {
     throw new PermanentJobError(`Brak opłaconej rezerwacji ${job.payload.reservationId}`);
   }
   const event = await events.findOne({ _id: reservation.eventId });

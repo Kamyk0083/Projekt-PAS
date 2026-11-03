@@ -2,6 +2,8 @@ import type { Collection } from "mongodb";
 import type { EventDoc } from "./db";
 
 const HALL = { rows: 8, seatsPerRow: 10, aisleAfter: 5 };
+// Wariant Kino: jedna cena za fotel na seans, w groszach.
+const PRICE = 3200;
 
 // Godzina "ścienna" w Warszawie zamieniona na UTC, niezależnie od strefy serwera.
 export function warsawDate(dayOffset: number, hour: number, minute: number): Date {
@@ -33,6 +35,7 @@ export function seedData(): EventDoc[] {
       startsAt: warsawDate(1, 18, 15),
       hall: "Sala 1",
       layout: HALL,
+      price: PRICE,
       posterSeed: "kino-nocny-pociag",
       synopsis:
         "Ostatni kurs z Gdyni do Zakopanego. Konduktorka zauważa, że jeden z pasażerów nie ma odbicia w szybie.",
@@ -48,6 +51,7 @@ export function seedData(): EventDoc[] {
       startsAt: warsawDate(1, 20, 45),
       hall: "Sala 2",
       layout: HALL,
+      price: PRICE,
       posterSeed: "kino-szum-fal",
       synopsis:
         "Dwie siostry wracają na Hel, żeby sprzedać dom po babci. Morze ma w tej sprawie własne zdanie.",
@@ -63,6 +67,7 @@ export function seedData(): EventDoc[] {
       startsAt: warsawDate(2, 19, 30),
       hall: "Sala 1",
       layout: HALL,
+      price: PRICE,
       posterSeed: "kino-orbita-siedem",
       synopsis:
         "Załoga stacji badawczej odbiera sygnał nadany z Ziemi trzydzieści lat temu. Nadawcą jest jeden z nich.",

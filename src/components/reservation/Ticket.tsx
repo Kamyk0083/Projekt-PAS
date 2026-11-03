@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import { Check, Copy } from "@phosphor-icons/react";
-import { formatShortDay, formatTime } from "@/lib/format";
+import { formatPrice, formatShortDay, formatTime } from "@/lib/format";
 import { parseSeatId } from "@/lib/hall";
 import type { ReservationView } from "@/lib/types";
 import styles from "./Ticket.module.css";
 
-// Karta C: bilet. Wysuwa się jak z drukarki kasowej (animacja CSS clip-path), bo to moment wydania biletu.
+// Karta C: bilet. Wysuwa się jak z drukarki kasowej (animacja CSS clip-path), a na koniec kasjer
+// przybija stempel "Opłacono": jedyny celebracyjny moment w całym procesie.
 export function Ticket({ view }: { view: ReservationView }) {
   const [copied, setCopied] = useState(false);
   const seat = parseSeatId(view.seatId);
@@ -27,6 +28,9 @@ export function Ticket({ view }: { view: ReservationView }) {
   return (
     <article className={styles.ticket} aria-label={`Bilet na ${event.film}`}>
       <div className={styles.main}>
+        <p className={styles.stamp}>
+          Opłacono <span>{formatPrice(view.amount)}</span>
+        </p>
         <p className={styles.brand}>Kino Pasaż</p>
         <h2>{event.film}</h2>
         <p className={styles.when}>

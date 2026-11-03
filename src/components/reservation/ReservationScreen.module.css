@@ -10,10 +10,21 @@
   }
 }
 
+/* pasek etapów nad treścią; przy bilecie wyrównany do jego kolumny */
+.steps,
+.stepsCentered {
+  padding-top: 24px;
+}
+
+.stepsCentered {
+  max-width: 34rem;
+  margin: 0 auto;
+}
+
 .grid {
   display: grid;
   gap: 40px;
-  padding-top: clamp(32px, 6vw, 72px);
+  padding-top: clamp(24px, 4vw, 48px);
 }
 
 @media (min-width: 960px) {
@@ -130,9 +141,65 @@
 }
 
 .note {
+  display: grid;
+  gap: 6px;
   font-size: 13px;
   color: var(--ink-3);
   text-align: center;
+}
+
+.note p:first-child {
+  display: inline-flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--ink-2);
+}
+
+.note svg {
+  flex: none;
+  transform: translateY(2px);
+}
+
+.testMode :global(.mono) {
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+/* kwota do zapłaty: ostatni wiersz podsumowania, mocniejszy */
+.summary > .total {
+  align-items: baseline;
+  padding-top: 14px;
+  border-top-color: var(--line);
+}
+
+.total dt {
+  color: var(--ink-2);
+}
+
+.summary .total dd {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+/* powrót po przerwanej płatności */
+.notice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  font-size: 14px;
+}
+
+.notice svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--accent);
 }
 
 .error {
@@ -186,7 +253,7 @@
   justify-items: start;
   max-width: 34rem;
   margin: 0 auto;
-  padding-top: clamp(32px, 6vw, 64px);
+  padding-top: clamp(24px, 4vw, 40px);
 }
 
 .purchasedHead {
@@ -211,3 +278,68 @@
   color: var(--ink-2);
 }
 
+
+/* --- płatność w toku (powrót ze Stripe'a, czekamy na webhook) ------------ */
+
+.processing {
+  display: grid;
+  gap: 20px;
+  justify-items: start;
+  max-width: 36rem;
+  padding-top: clamp(32px, 7vw, 88px);
+}
+
+.processing h1 {
+  font-size: clamp(2rem, 5vw, 3.25rem);
+  letter-spacing: -0.03em;
+}
+
+.processing p {
+  color: var(--ink-2);
+  font-size: 17px;
+  max-width: 46ch;
+}
+
+.processing .processingMeta {
+  font-size: 14px;
+  color: var(--ink-3);
+}
+
+.dots {
+  color: var(--accent);
+}
+
+/* pasek "nie wiadomo ile": odcinek przesuwany transformem, bez animowania szerokości */
+.indeterminate {
+  width: min(100%, 28rem);
+  height: 2px;
+  border-radius: 2px;
+  background: var(--line-soft);
+  overflow: hidden;
+}
+
+.indeterminate span {
+  display: block;
+  width: 40%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  animation: sweep 1.4s var(--ease-in-out) infinite;
+}
+
+@keyframes sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .indeterminate span {
+    width: 100%;
+    animation: none;
+    opacity: 0.6;
+  }
+}

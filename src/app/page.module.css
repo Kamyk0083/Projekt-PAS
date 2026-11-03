@@ -227,3 +227,16 @@
     grid-template-columns: 240px minmax(0, 1.5fr) minmax(0, 1fr) auto;
   }
 }
+
+.timeRow {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.price {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}

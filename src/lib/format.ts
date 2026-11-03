@@ -44,3 +44,7 @@ export function pluralSeats(n: number): string {
 export function posterUrl(seed: string, w = 480, h = 640) {
   return `https://picsum.photos/seed/${encodeURIComponent(seed)}/${w}/${h}`;
 }
+
+// Kwoty w API są w groszach (3200 = 32 zł). Pełne złote bez końcówki ",00".
+const priceFmt = new Intl.NumberFormat("pl-PL", { style: "currency", currency: "PLN", minimumFractionDigits: 0, maximumFractionDigits: 2 });
+export const formatPrice = (grosze: number) => priceFmt.format(grosze / 100);

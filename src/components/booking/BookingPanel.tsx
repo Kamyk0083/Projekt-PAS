@@ -7,7 +7,7 @@ import { CircleNotch, Info, Warning, X } from "@phosphor-icons/react";
 import { api, ApiError, newIdempotencyKey } from "@/client/api";
 import { readStored, useMediaQuery, writeStored } from "@/client/hooks";
 import { parseSeatId, totalSeats } from "@/lib/hall";
-import { pluralSeats } from "@/lib/format";
+import { formatPrice, pluralSeats } from "@/lib/format";
 import type { CinemaEvent } from "@/lib/types";
 import styles from "./BookingPanel.module.css";
 
@@ -43,8 +43,8 @@ export function BookingPanel({ event, selected, freeCount, ttlMinutes, notice, o
           <div className={styles.empty}>
             <h2>Wybierz fotel</h2>
             <p>
-              Kliknij wolne miejsce na planie. Zatrzymamy je dla Ciebie przez {ttlMinutes} minut, a bilet kupisz na
-              następnym ekranie.
+              Kliknij wolne miejsce na planie. Zatrzymamy je dla Ciebie przez {ttlMinutes} minut, a bilet za{" "}
+              {formatPrice(event.price)} opłacisz kartą na następnym ekranie.
             </p>
           </div>
         )}
@@ -200,7 +200,9 @@ function ReservationForm({ event, seat, ttlMinutes, onClose, onConflict }: FormP
               Rząd {parsed?.row}, miejsce {parsed?.number}
             </motion.h2>
           </AnimatePresence>
-          <p>{event.hall}</p>
+          <p>
+            {event.hall}, <span className={styles.price}>{formatPrice(event.price)}</span>
+          </p>
         </div>
         <button type="button" className={styles.close} onClick={onClose} aria-label="Anuluj wybór fotela">
           <X size={18} weight="bold" aria-hidden />

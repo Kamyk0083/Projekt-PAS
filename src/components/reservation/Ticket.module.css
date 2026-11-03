@@ -28,9 +28,59 @@
 }
 
 .main {
+  position: relative;
   display: grid;
   gap: 6px;
   padding: 26px 28px 24px;
+}
+
+/* stempel kasjera: przybity po wydruku biletu */
+.stamp {
+  position: absolute;
+  top: 22px;
+  right: 24px;
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  padding: 7px 12px 6px;
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  line-height: 1.1;
+  transform: rotate(-8deg);
+  opacity: 0.92;
+}
+
+.stamp span {
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .stamp {
+    animation: stamp 280ms var(--ease-out) 1000ms both;
+  }
+}
+
+@keyframes stamp {
+  0% {
+    opacity: 0;
+    transform: rotate(-14deg) scale(1.7);
+  }
+  70% {
+    opacity: 0.92;
+    transform: rotate(-7deg) scale(0.95);
+  }
+  100% {
+    opacity: 0.92;
+    transform: rotate(-8deg) scale(1);
+  }
 }
 
 .brand {

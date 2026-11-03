@@ -4,7 +4,7 @@ import { ArrowRight } from "@phosphor-icons/react/dist/ssr";
 import { listEvents, takenSeats } from "@/server/events";
 import { Poster } from "@/components/Poster";
 import { SeatDensity } from "@/components/SeatDensity";
-import { dayKey, formatDuration, formatTime, pluralSeats, relativeDayLabel } from "@/lib/format";
+import { dayKey, formatDuration, formatPrice, formatTime, pluralSeats, relativeDayLabel } from "@/lib/format";
 import { totalSeats } from "@/lib/hall";
 import type { CinemaEvent } from "@/lib/types";
 import styles from "./page.module.css";
@@ -29,7 +29,7 @@ export default async function RepertoirePage() {
     <div className="page">
       <section className={styles.intro}>
         <h1>Repertuar</h1>
-        <p>Wybierz seans, potem fotel. Trzymamy go dla Ciebie, dopóki nie kupisz biletu.</p>
+        <p>Wybierz seans, potem fotel. Trzymamy go dla Ciebie, a bilet opłacisz kartą online.</p>
       </section>
 
       {screenings.length === 0 ? (
@@ -69,8 +69,11 @@ function ScreeningRow({ screening: s, lead }: { screening: Screening; lead: bool
         className={styles.poster}
       />
       <div className={styles.info}>
-        <p className={`${styles.time} mono`}>
-          <time dateTime={s.startsAt}>{formatTime(s.startsAt)}</time>
+        <p className={styles.timeRow}>
+          <time className={`${styles.time} mono`} dateTime={s.startsAt}>
+            {formatTime(s.startsAt)}
+          </time>
+          <span className={styles.price}>{formatPrice(s.price)}</span>
         </p>
         <h3 className={styles.title}>{s.film}</h3>
         <p className={styles.meta}>

@@ -1,8 +1,16 @@
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  margin-top: 24px;
+}
+
 .back {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin-top: 24px;
   padding: 8px 12px 8px 8px;
   margin-left: -8px;
   border-radius: var(--radius-pill);
@@ -58,4 +66,16 @@
   .poster {
     width: 88px;
   }
+}
+
+.price {
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.price strong {
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }

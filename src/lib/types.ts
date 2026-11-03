@@ -15,6 +15,7 @@ export type CinemaEvent = {
   layout: HallLayout;
   posterSeed: string;
   synopsis: string;
+  price: number; // cena fotela w groszach (3200 = 32 zł)
 };
 
 export type EventDetails = {
@@ -22,7 +23,7 @@ export type EventDetails = {
   takenSeats: string[];
 };
 
-export type ReservationStatus = "held" | "purchased" | "expired";
+export type ReservationStatus = "held" | "paid" | "expired";
 
 export type EmailStatus = "none" | "pending" | "sent" | "failed";
 
@@ -33,9 +34,12 @@ export type ReservationView = {
   customerName: string;
   emailMasked: string;
   status: ReservationStatus;
+  amount: number; // w groszach, zapisane w chwili rezerwacji
+  currency: "pln";
   expiresAt: string;
-  code: string | null;
-  purchasedAt: string | null;
+  code?: string; // tylko gdy status = "paid"
+  purchasedAt: string | null; // chwila opłacenia
+  refund: "pending" | "succeeded" | null; // płatność po czasie, gdy fotel miał już innego właściciela
   emailStatus: EmailStatus;
   event: CinemaEvent;
   serverTime: string; // do korekty przesunięcia zegara klienta

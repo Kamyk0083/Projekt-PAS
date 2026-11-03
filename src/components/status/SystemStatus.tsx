@@ -5,12 +5,15 @@ import { api } from "@/client/api";
 import { usePolling } from "@/client/hooks";
 import styles from "./SystemStatus.module.css";
 
+type Breaker = { state: "CLOSED" | "OPEN" | "HALF_OPEN"; recentRequests: number; recentFailures: number; retryAt: number | null };
+
 type Status = {
   serverTime: string;
   reservationTtlSeconds: number;
   inFlight: number;
   pools: { name: string; active: number; queued: number; maxConcurrent: number }[];
-  mailer: { state: "CLOSED" | "OPEN" | "HALF_OPEN"; recentRequests: number; recentFailures: number; retryAt: number | null };
+  mailer: Breaker;
+  payments: { configured: boolean; breaker: Breaker };
   queue: {
     pending: number;
     processing: number;
@@ -26,6 +29,12 @@ const BREAKER_TEXT = {
   CLOSED: "Działa. Zadania z kolejki przechodzą normalnie.",
   OPEN: "Wstrzymany. Dostawca maili nie odpowiada, więc go nie wołamy i czekamy.",
   HALF_OPEN: "Próba. Puszczamy jedno zapytanie, żeby sprawdzić, czy dostawca wrócił.",
+};
+
+const STRIPE_TEXT = {
+  CLOSED: "Działa. Sesje płatności i zwroty idą do Stripe'a normalnie.",
+  OPEN: "Wstrzymany. Stripe nie odpowiada, więc „Zapłać” od razu mówi, że płatności chwilowo nie działają.",
+  HALF_OPEN: "Próba. Puszczamy jedno wywołanie, żeby sprawdzić, czy Stripe wrócił.",
 };
 
 const POOL_NAMES: Record<string, string> = {
@@ -58,8 +67,8 @@ export function SystemStatus() {
       <header className={styles.head}>
         <h1>Stan systemu</h1>
         <p>
-          Jak kasa radzi sobie z awariami: praca w tle przez kolejkę, bezpiecznik zawodnej zależności, pule zapytań i
-          limit żądań. Dostawca maili jest symulowany: nic nie trafia do prawdziwych skrzynek. Dane odświeżają się same.
+          Jak kasa radzi sobie z awariami: praca w tle przez kolejkę, bezpieczniki zależności zewnętrznych (Stripe i
+          maile), pule zapytań i limit żądań. Dostawca maili jest symulowany: nic nie trafia do prawdziwych skrzynek. Dane odświeżają się same.
         </p>
         {offline && (
           <p className={styles.offline} role="status">
@@ -72,6 +81,22 @@ export function SystemStatus() {
         <div className={styles.skeleton} aria-hidden />
       ) : (
         <div className={styles.sections}>
+          <section className={styles.breaker} data-state={status.payments.configured ? status.payments.breaker.state : "OPEN"}>
+            <h2>Płatności (Stripe, tryb testowy)</h2>
+            <p className={`${styles.state} mono`}>
+              {status.payments.configured ? status.payments.breaker.state : "BRAK KLUCZY"}
+            </p>
+            <p>
+              {status.payments.configured
+                ? STRIPE_TEXT[status.payments.breaker.state]
+                : "Serwer nie ma kluczy testowych Stripe'a, więc „Zapłać” odpowiada 503. Rezerwacje działają dalej."}
+            </p>
+            <p className={styles.small}>
+              Ostatnie wywołania: {status.payments.breaker.recentRequests}, w tym błędów:{" "}
+              {status.payments.breaker.recentFailures}.
+            </p>
+          </section>
+
           <section className={styles.breaker} data-state={status.mailer.state}>
             <h2>Dostawca maili (symulowany)</h2>
             <p className={`${styles.state} mono`}>{status.mailer.state}</p>

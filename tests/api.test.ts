@@ -35,6 +35,8 @@ const person = { customerName: "Ola Wiśniewska", email: "ola@example.pl" };
 
 beforeAll(async () => {
   process.env.WORKER_ENABLED = "false";
+  // Kryteria etapu I sprawdzają zakup bez płatności (POST /purchase).
+  process.env.LEGACY_PURCHASE_WITHOUT_PAYMENT = "true";
   process.env.RATE_LIMIT_ENABLED = "false";
   process.env.MAILER_FAILURE_RATE = "0";
   process.env.MAILER_LATENCY_MS = "5";

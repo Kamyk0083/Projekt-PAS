@@ -18,6 +18,7 @@ export type EventDoc = {
   layout: HallLayout;
   posterSeed: string;
   synopsis: string;
+  price: number; // cena fotela w groszach (3200 = 32 zł)
 };
 
 // Jeden dokument na fotel w danym seansie. _id = `${eventId}|${seatId}`,
@@ -38,12 +39,29 @@ export type ReservationDoc = {
   seatId: string;
   customerName: string;
   email: string;
-  status: "held" | "purchased" | "expired";
+  // "purchased" to stan z etapu I (dane sprzed płatności); w API widać go jako "paid".
+  status: "held" | "paid" | "purchased" | "expired";
+  amount: number; // cena w groszach zapisana w chwili rezerwacji, potem już się nie zmienia
+  currency: "pln";
   expiresAt: Date;
   createdAt: Date;
-  purchasedAt?: Date;
+  purchasedAt?: Date; // chwila opłacenia (nazwa z etapu I)
   code?: string;
   idempotencyKey?: string;
+  // Bieżąca sesja Stripe Checkout. attempt rośnie, gdy poprzednia sesja wygasa.
+  checkout?: { attempt: number; expiresAt: Date; sessionId?: string; url?: string };
+  payment?: { sessionId: string; paymentIntentId: string | null; amount: number; paidAt: Date };
+  // Płatność, która przyszła, gdy fotel miał już innego właściciela: oddajemy pieniądze.
+  refund?: { sessionId: string; paymentIntentId: string; status: "pending" | "succeeded"; refundId?: string };
+};
+
+// Zdarzenia od Stripe'a, które już obsłużyliśmy (deduplikacja webhooków i ślad audytowy).
+export type StripeEventDoc = {
+  _id: string; // event.id
+  type: string;
+  reservationId: string | null;
+  outcome: string;
+  receivedAt: Date;
 };
 
 export type JobDoc = {
@@ -90,6 +108,7 @@ export type Collections = {
   deadLetters: Collection<DeadLetterDoc>;
   mails: Collection<MailDoc>;
   rateBuckets: Collection<RateBucketDoc>;
+  stripeEvents: Collection<StripeEventDoc>;
 };
 
 type DbState = { client: MongoClient; db: Db; cols: Collections; memory: boolean };
@@ -135,6 +154,7 @@ async function init(): Promise<DbState> {
     deadLetters: db.collection<DeadLetterDoc>("deadLetters"),
     mails: db.collection<MailDoc>("mails"),
     rateBuckets: db.collection<RateBucketDoc>("rateBuckets"),
+    stripeEvents: db.collection<StripeEventDoc>("stripeEvents"),
   };
   await ensureIndexes(cols);
   await seedEvents(cols.events);
@@ -152,6 +172,9 @@ async function ensureIndexes(cols: Collections) {
     cols.jobs.createIndex({ status: 1, visibleAt: 1 }),
     // Wiadra limitera sprzątają się same po okresie bezczynności.
     cols.rateBuckets.createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 }),
+    cols.reservations.createIndex({ "checkout.sessionId": 1 }, { sparse: true }),
+    // Stripe ponawia zdarzenia najwyżej przez 3 dni, więc 30 dni pamięci w zupełności wystarcza.
+    cols.stripeEvents.createIndex({ receivedAt: 1 }, { expireAfterSeconds: 30 * 24 * 3600 }),
   ]);
 }
 

@@ -46,6 +46,29 @@ export const config = {
   get cronSecret() {
     return process.env.CRON_SECRET || "";
   },
+  // Stripe (etap II). Klucze tylko z env serwera, nigdy w repo ani w przeglądarce.
+  get stripe() {
+    return {
+      secretKey: process.env.STRIPE_SECRET_KEY || "",
+      webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || "",
+      timeoutMs: num("STRIPE_TIMEOUT_MS", 8000),
+    };
+  },
+  // Adres sklepu do stron powrotu ze Stripe'a. Nie bierzemy go z nagłówka Host,
+  // bo ten kontroluje klient (open redirect po płatności).
+  get appUrl() {
+    const explicit = process.env.APP_URL;
+    if (explicit) return explicit.replace(/\/$/, "");
+    const vercelHost =
+      process.env.VERCEL_ENV === "production" ? process.env.VERCEL_PROJECT_PRODUCTION_URL : process.env.VERCEL_URL;
+    if (vercelHost) return `https://${vercelHost}`;
+    return `http://localhost:${process.env.PORT || 3000}`;
+  },
+  // Etap I: zakup bez płatności (POST /purchase). Domyślnie wyłączony, bo od etapu II
+  // bilet wydajemy dopiero po opłaceniu. Włącza się tylko do testów kryteriów etapu I.
+  get legacyPurchase() {
+    return bool("LEGACY_PURCHASE_WITHOUT_PAYMENT", false);
+  },
   // Timeout operacji na bazie: lepiej szybka porażka niż wiszący request (E04).
   dbOpTimeoutMs: 3000,
 };

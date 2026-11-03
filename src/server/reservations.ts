@@ -1,11 +1,11 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
-import { collections, duplicateKeyField, getDb, isDuplicateKey, type ReservationDoc } from "./db";
+import { collections, duplicateKeyField, getDb, isDuplicateKey, type JobDoc, type ReservationDoc } from "./db";
 import { config } from "./config";
 import { AppError, badRequest, notFound } from "./errors";
 import { getEventDoc, toEvent } from "./events";
 import { isSeatInHall } from "@/lib/hall";
-import type { EmailStatus, ReservationView } from "@/lib/types";
+import type { EmailStatus, ReservationStatus, ReservationView } from "@/lib/types";
 
 export const reservationInput = z.object({
   eventId: z.string().trim().min(1).max(100),
@@ -23,7 +23,7 @@ export type ReservationInput = z.infer<typeof reservationInput>;
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9_.:-]{8,200}$/;
 const RESERVATION_ID = /^[0-9a-f-]{36}$/i;
 
-const seatKey = (eventId: string, seatId: string) => `${eventId}|${seatId}`;
+export const seatKey = (eventId: string, seatId: string) => `${eventId}|${seatId}`;
 
 export function parseReservationInput(body: unknown): ReservationInput {
   const result = reservationInput.safeParse(body);
@@ -41,14 +41,14 @@ export function parseIdempotencyKey(raw: string | null): string | undefined {
   return raw;
 }
 
-type ReserveResult = { reservationId: string; expiresAt: string; replayed: boolean };
+type ReserveResult = { reservationId: string; expiresAt: string; amount: number; replayed: boolean };
 
 function replayOf(doc: ReservationDoc, input: ReservationInput): ReserveResult {
   // Ten sam klucz, inna treść: to nie jest ponowienie, tylko błąd klienta.
   if (doc.eventId !== input.eventId || doc.seatId !== input.seatId) {
     throw new AppError(422, "IDEMPOTENCY_MISMATCH", "Ten klucz idempotencji użyto już dla innego fotela.");
   }
-  return { reservationId: doc._id, expiresAt: doc.expiresAt.toISOString(), replayed: true };
+  return { reservationId: doc._id, expiresAt: doc.expiresAt.toISOString(), amount: doc.amount, replayed: true };
 }
 
 // Rezerwacja fotela (karta B).
@@ -112,6 +112,9 @@ export async function reserve(input: ReservationInput, idempotencyKey?: string):
           customerName: input.customerName,
           email: input.email,
           status: "held",
+          // Cena z chwili rezerwacji: zmiana cennika nie zmieni kwoty do zapłaty.
+          amount: event.price,
+          currency: "pln",
           expiresAt,
           createdAt: now,
           ...(idempotencyKey ? { idempotencyKey } : {}),
@@ -138,7 +141,9 @@ export async function reserve(input: ReservationInput, idempotencyKey?: string):
         status: "held",
         expiresAt: { $gt: new Date() },
       });
-      if (same) return { reservationId: same._id, expiresAt: same.expiresAt.toISOString(), replayed: true };
+      if (same) {
+        return { reservationId: same._id, expiresAt: same.expiresAt.toISOString(), amount: same.amount, replayed: true };
+      }
       throw new AppError(409, "SEAT_TAKEN", `Fotel ${input.seatId} jest już zajęty. Wybierz inny.`);
     }
     throw err;
@@ -146,28 +151,46 @@ export async function reserve(input: ReservationInput, idempotencyKey?: string):
     await session.endSession();
   }
 
-  return { reservationId, expiresAt: expiresAt.toISOString(), replayed: false };
+  return { reservationId, expiresAt: expiresAt.toISOString(), amount: event.price, replayed: false };
 }
 
 const CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // bez 0/O i 1/I
 
-function ticketCode(): string {
+export function ticketCode(): string {
   const bytes = randomBytes(8);
   const chars = Array.from(bytes, (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
   return `KP-${chars.slice(0, 4)}-${chars.slice(4)}`;
 }
 
-function parseReservationId(id: string) {
+export function parseReservationId(id: string) {
   if (!RESERVATION_ID.test(id)) throw notFound("rezerwacja");
   return id;
 }
 
-// Zakup (karta C). Idempotentny z natury: warunkowy zapis "held i niewygasła -> purchased".
-// Ponowne kliknięcie albo retry widzi status "purchased" i dostaje ten sam kod.
-// W tej samej transakcji trafia do kolejki zadanie wysłania biletu mailem (transactional outbox),
-// więc nie ma stanu "kupione, ale zadanie zginęło".
+export const isPaid = (doc: Pick<ReservationDoc, "status">) => doc.status === "paid" || doc.status === "purchased";
+
+// Zakup z etapu I (POST /purchase). Od etapu II bilet wydaje dopiero opłacenie w Stripe
+// (webhook, src/server/payments.ts), więc tu oddajemy tylko kod już opłaconej rezerwacji.
+// Stara ścieżka "kod bez płatności" działa wyłącznie z LEGACY_PURCHASE_WITHOUT_PAYMENT=true.
 export async function purchase(rawId: string): Promise<{ code: string; replayed: boolean }> {
   const reservationId = parseReservationId(rawId);
+  if (!config.legacyPurchase) {
+    const { reservations } = await collections();
+    const doc = await reservations.findOne({ _id: reservationId }, { maxTimeMS: config.dbOpTimeoutMs });
+    if (!doc) throw notFound("rezerwacja");
+    if (isPaid(doc) && doc.code) return { code: doc.code, replayed: true };
+    if (doc.status === "expired" || doc.expiresAt <= new Date()) {
+      throw new AppError(410, "RESERVATION_EXPIRED", "Rezerwacja wygasła, fotel wrócił do puli.");
+    }
+    throw new AppError(402, "PAYMENT_REQUIRED", "Bilet wydajemy po opłaceniu: POST /api/reservations/:id/checkout.");
+  }
+  return legacyPurchase(reservationId);
+}
+
+// Etap I: idempotentny z natury warunkowy zapis "held i niewygasła -> paid".
+// Ponowne kliknięcie albo retry widzi status "paid" i dostaje ten sam kod.
+// W tej samej transakcji trafia do kolejki zadanie wysłania biletu mailem (transactional outbox).
+async function legacyPurchase(reservationId: string): Promise<{ code: string; replayed: boolean }> {
   const { client } = await getDb();
   const { reservations, seats, jobs } = await collections();
   const now = new Date();
@@ -179,14 +202,14 @@ export async function purchase(rawId: string): Promise<{ code: string; replayed:
     await session.withTransaction(async () => {
       const updated = await reservations.findOneAndUpdate(
         { _id: reservationId, status: "held", expiresAt: { $gt: now } },
-        { $set: { status: "purchased", purchasedAt: now, code } },
+        { $set: { status: "paid", purchasedAt: now, code } },
         { returnDocument: "after", session },
       );
 
       if (!updated) {
         const existing = await reservations.findOne({ _id: reservationId }, { session });
         if (!existing) throw notFound("rezerwacja");
-        if (existing.status === "purchased" && existing.code) {
+        if (isPaid(existing) && existing.code) {
           result = { code: existing.code, replayed: true };
           return;
         }
@@ -203,25 +226,26 @@ export async function purchase(rawId: string): Promise<{ code: string; replayed:
         throw new AppError(410, "RESERVATION_EXPIRED", "Rezerwacja wygasła, fotel wrócił do puli.");
       }
 
-      await jobs.insertOne(
-        {
-          _id: `ticket-email:${reservationId}`,
-          topic: "ticket-email",
-          payload: { reservationId },
-          status: "pending",
-          deliveryCount: 0,
-          visibleAt: now,
-          createdAt: now,
-          updatedAt: now,
-        },
-        { session },
-      );
+      await jobs.insertOne(ticketEmailJob(reservationId, now), { session });
       result = { code, replayed: false };
     });
     return result!;
   } finally {
     await session.endSession();
   }
+}
+
+export function ticketEmailJob(reservationId: string, now: Date): JobDoc {
+  return {
+    _id: `ticket-email:${reservationId}`,
+    topic: "ticket-email",
+    payload: { reservationId },
+    status: "pending",
+    deliveryCount: 0,
+    visibleAt: now,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 function maskEmail(email: string): string {
@@ -239,10 +263,14 @@ export async function getReservation(rawId: string): Promise<ReservationView> {
 
   const now = new Date();
   const event = await getEventDoc(doc.eventId);
-  const status = doc.status === "held" && doc.expiresAt <= now ? "expired" : doc.status;
+  const status: ReservationStatus = isPaid(doc)
+    ? "paid"
+    : doc.status === "held" && doc.expiresAt > now
+      ? "held"
+      : "expired";
 
   let emailStatus: EmailStatus = "none";
-  if (doc.status === "purchased") {
+  if (status === "paid") {
     const job = await jobs.findOne({ _id: `ticket-email:${reservationId}` }, { projection: { status: 1 } });
     emailStatus = job?.status === "done" ? "sent" : job?.status === "dead" ? "failed" : "pending";
   }
@@ -254,9 +282,13 @@ export async function getReservation(rawId: string): Promise<ReservationView> {
     customerName: doc.customerName,
     emailMasked: maskEmail(doc.email),
     status,
+    // Rezerwacje sprzed etapu II nie mają zapisanej kwoty: wtedy obowiązuje cena seansu.
+    amount: doc.amount ?? event.price,
+    currency: "pln",
     expiresAt: doc.expiresAt.toISOString(),
-    code: doc.code ?? null,
+    ...(status === "paid" && doc.code ? { code: doc.code } : {}),
     purchasedAt: doc.purchasedAt?.toISOString() ?? null,
+    refund: doc.refund?.status ?? null,
     emailStatus,
     event: toEvent(event),
     serverTime: now.toISOString(),

@@ -2,7 +2,7 @@
   "name": "kino-pasaz",
   "version": "1.0.0",
   "private": true,
-  "description": "Kasa biletowa kina: rezerwacja fotela na określony czas i zakup biletu (Projekt PAS S01, Etap I).",
+  "description": "Kasa biletowa kina: rezerwacja fotela na określony czas i płatność Stripe Checkout (Projekt PAS S01, etapy I i II).",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -20,6 +20,7 @@
     "next": "^16.4.3",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "stripe": "^23.1.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {

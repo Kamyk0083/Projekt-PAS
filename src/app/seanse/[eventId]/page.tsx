@@ -8,7 +8,8 @@ import { AppError } from "@/server/errors";
 import { config } from "@/server/config";
 import { Poster } from "@/components/Poster";
 import { HallBooking } from "@/components/booking/HallBooking";
-import { formatDuration, formatTime, relativeDayLabel } from "@/lib/format";
+import { formatDuration, formatPrice, formatTime, relativeDayLabel } from "@/lib/format";
+import { FlowSteps } from "@/components/FlowSteps";
 import styles from "./page.module.css";
 
 type Props = {
@@ -40,10 +41,13 @@ export default async function ScreeningPage({ params, searchParams }: Props) {
 
   return (
     <div className="page">
-      <Link href="/" className={styles.back}>
-        <ArrowLeft size={16} weight="bold" aria-hidden />
-        Repertuar
-      </Link>
+      <div className={styles.topbar}>
+        <Link href="/" className={styles.back}>
+          <ArrowLeft size={16} weight="bold" aria-hidden />
+          Repertuar
+        </Link>
+        <FlowSteps current={1} />
+      </div>
 
       <header className={styles.head}>
         <Poster seed={event.posterSeed} alt={`Kadr z filmu ${event.film}`} sizes="88px" priority className={styles.poster} />
@@ -56,6 +60,9 @@ export default async function ScreeningPage({ params, searchParams }: Props) {
           </p>
           <p className={styles.meta}>
             {event.hall}, {event.genre}, {formatDuration(event.durationMin)}, {event.ageRating}, {event.language}
+          </p>
+          <p className={styles.price}>
+            Bilet <strong>{formatPrice(event.price)}</strong>
           </p>
         </div>
       </header>

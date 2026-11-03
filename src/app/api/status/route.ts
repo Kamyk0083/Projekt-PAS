@@ -1,6 +1,7 @@
 import { route, json, inFlightCount } from "@/server/http";
 import { pools } from "@/server/bulkhead";
 import { mailBreaker } from "@/server/mailer";
+import { paymentsConfigured, stripeBreaker } from "@/server/stripe";
 import { queueStats } from "@/server/worker";
 import { config } from "@/server/config";
 
@@ -12,6 +13,7 @@ export const GET = route({ pool: "read" }, async () =>
     inFlight: inFlightCount(),
     pools: [pools.read.stats(), pools.write.stats()],
     mailer: mailBreaker.snapshot(),
+    payments: { configured: paymentsConfigured(), breaker: stripeBreaker.snapshot() },
     queue: await queueStats(),
     rateLimit: config.rateLimit,
   }),
