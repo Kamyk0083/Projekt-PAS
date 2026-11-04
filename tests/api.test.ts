@@ -7,6 +7,7 @@ import { GET as getReservation } from "@/app/api/reservations/[id]/route";
 import { POST as purchaseReservation } from "@/app/api/reservations/[id]/purchase/route";
 import { GET as getStatus } from "@/app/api/status/route";
 import { runWorkerTick, stopWorker } from "@/server/worker";
+import { seedData } from "@/server/seed";
 
 const EVENT = "nocny-pociag";
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
@@ -62,11 +63,11 @@ afterAll(async () => {
 });
 
 describe("A. wydarzenia i mapa", () => {
-  it("zwraca 3 seanse w 2 salach po 8x10 foteli", async () => {
+  it("zwraca cały repertuar w 2 salach po 8x10 foteli", async () => {
     const res = await listEvents(new Request("http://test/api/events"), undefined as never);
     expect(res.status).toBe(200);
     const events = await res.json();
-    expect(events).toHaveLength(3);
+    expect(events).toHaveLength(seedData().length);
     expect(new Set(events.map((e: { hall: string }) => e.hall)).size).toBe(2);
     for (const e of events) expect(e.layout).toMatchObject({ rows: 8, seatsPerRow: 10 });
   });

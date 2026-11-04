@@ -26,6 +26,7 @@
   font-weight: 650;
   letter-spacing: -0.02em;
   font-size: 17px;
+  white-space: nowrap;
 }
 
 .mark {
@@ -40,6 +41,7 @@
 }
 
 .nav a {
+  white-space: nowrap;
   padding: 8px 12px;
   border-radius: var(--radius-pill);
   transition: color 160ms ease, background-color 160ms ease;

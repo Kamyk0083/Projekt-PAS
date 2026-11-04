@@ -20,6 +20,19 @@ export function relativeDayLabel(iso: string, now = new Date()): string {
   return full.charAt(0).toUpperCase() + full.slice(1);
 }
 
+// Etykieta zakładki dnia w repertuarze: "Jutro" / "Pt." nad "6 lis".
+const weekdayFmt = new Intl.DateTimeFormat("pl-PL", { weekday: "short", timeZone: TZ });
+const dayMonthFmt = new Intl.DateTimeFormat("pl-PL", { day: "numeric", month: "short", timeZone: TZ });
+
+export function dayTab(iso: string, now = new Date()): { weekday: string; date: string } {
+  const key = dayKey(iso);
+  const date = dayMonthFmt.format(new Date(iso));
+  if (key === dayKey(now)) return { weekday: "Dziś", date };
+  if (key === dayKey(new Date(now.getTime() + 86_400_000))) return { weekday: "Jutro", date };
+  const wd = weekdayFmt.format(new Date(iso));
+  return { weekday: wd.charAt(0).toUpperCase() + wd.slice(1), date };
+}
+
 export function formatCountdown(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000));
   const m = Math.floor(total / 60);

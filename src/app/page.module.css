@@ -1,12 +1,14 @@
+/* --- intro ------------------------------------------------------------- */
+
 .intro {
-  padding: clamp(40px, 7vw, 88px) 0 clamp(28px, 4vw, 48px);
+  padding: clamp(36px, 6vw, 72px) 0 clamp(24px, 3.5vw, 40px);
   display: grid;
-  gap: 14px;
-  max-width: 36rem;
+  gap: 12px;
+  max-width: 38rem;
 }
 
 .intro h1 {
-  font-size: clamp(2.5rem, 6vw, 4.25rem);
+  font-size: clamp(2.25rem, 5.5vw, 3.75rem);
   letter-spacing: -0.035em;
   font-weight: 650;
 }
@@ -21,28 +23,219 @@
   padding: 48px 0;
 }
 
-.day + .day {
-  margin-top: 56px;
+.sectionTitle {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+/* --- na ekranie: pasek plakatów ---------------------------------------- */
+
+.onScreen {
+  display: grid;
+  gap: 18px;
+}
+
+.strip {
+  list-style: none;
+  margin: 0 calc(var(--gutter) * -1);
+  padding: 4px var(--gutter) 18px;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 150px;
+  gap: 16px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: var(--gutter);
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.strip > li {
+  scroll-snap-align: start;
+  animation: rise 520ms var(--ease-out) both;
+  animation-delay: calc(var(--i) * 50ms + 60ms);
+}
+
+.stripCard {
+  display: grid;
+  gap: 4px;
+  border-radius: var(--radius-md);
+}
+
+.stripPosterWrap {
+  position: relative;
+  border-radius: var(--radius-md);
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 10px 28px oklch(0 0 0 / 0.35);
+  transition:
+    box-shadow 220ms ease,
+    transform 260ms var(--ease-out);
+  margin-bottom: 8px;
+}
+
+.stripPoster {
+  border-radius: var(--radius-md);
+}
+
+.stripPoster :global(img) {
+  transition: filter 320ms ease, transform 420ms var(--ease-out);
+}
+
+.badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  padding: 2px 7px;
+  border-radius: var(--radius-xs);
+  background: oklch(0.165 0.012 265 / 0.82);
+  backdrop-filter: blur(6px);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.stripTitle {
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+.stripMeta {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .stripCard:hover .stripPosterWrap {
+    transform: translateY(-3px);
+    box-shadow:
+      0 0 0 2px var(--accent),
+      0 16px 36px oklch(0 0 0 / 0.45);
+  }
+  .stripCard:hover .stripPoster :global(img) {
+    filter: none;
+    transform: scale(1.03);
+  }
+}
+
+.stripCard:active .stripPosterWrap {
+  transform: scale(0.98);
+}
+
+@media (min-width: 760px) {
+  .strip {
+    grid-auto-columns: 172px;
+    gap: 18px;
+  }
+}
+
+/* Na szerokim ekranie cały pasek mieści się bez przewijania. */
+@media (min-width: 1100px) {
+  .strip {
+    grid-auto-columns: minmax(140px, 1fr);
+  }
+}
+
+/* --- repertuar: zakładki dni ------------------------------------------- */
+
+.repertoire {
+  margin-top: clamp(40px, 6vw, 64px);
+}
+
+.repHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.days {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.dayTab {
+  display: grid;
+  justify-items: center;
+  min-width: 76px;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--ink-2);
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease,
+    transform 160ms var(--ease-out);
+}
+
+.dayTab:active {
+  transform: scale(0.97);
+}
+
+.dayWeekday {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dayDate {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.dayActive {
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: none;
+}
+
+.dayActive .dayDate {
+  color: var(--accent-ink);
+  opacity: 0.75;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .dayTab:not(.dayActive):hover {
+    background: var(--surface);
+    color: var(--ink);
+  }
 }
 
 .dayLabel {
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--ink-2);
-  letter-spacing: 0;
+  margin-top: 20px;
   padding-bottom: 14px;
   border-bottom: 1px solid var(--line-soft);
+  color: var(--ink-3);
+  font-size: 14px;
 }
 
-.list {
+/* --- karta filmu ------------------------------------------------------- */
+
+.films {
   list-style: none;
-  margin: 0;
+  margin: 20px 0 0;
   padding: 0;
+  display: grid;
+  gap: 16px;
 }
 
-.list > li {
-  animation: rise 520ms var(--ease-out) both;
-  animation-delay: calc(var(--i) * 70ms + 80ms);
+.films > li {
+  scroll-margin-top: 84px;
+  animation: rise 480ms var(--ease-out) both;
+  animation-delay: calc(var(--i) * 60ms + 40ms);
+}
+
+.films > li:target .film {
+  border-color: var(--accent-line);
 }
 
 @keyframes rise {
@@ -52,191 +245,197 @@
   }
 }
 
-.row {
-  --pad: 18px;
+.film {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr) auto;
+  grid-template-columns: 84px minmax(0, 1fr);
   grid-template-areas:
-    "poster info cta"
-    "poster hall cta";
-  column-gap: 18px;
-  row-gap: 14px;
-  align-items: center;
-  padding: var(--pad);
-  margin: 0 calc(var(--pad) * -1);
+    "poster head"
+    "syn syn"
+    "times times";
+  gap: 14px 16px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  transition: background-color 200ms ease;
+  box-shadow:
+    0 1px 0 oklch(1 0 0 / 0.04) inset,
+    0 10px 30px oklch(0 0 0 / 0.25);
+  transition: border-color 300ms ease;
 }
 
-.row + .row {
-  margin-top: 4px;
-}
-
-.poster {
+.filmPoster {
   grid-area: poster;
   align-self: start;
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 1px var(--line-soft);
 }
 
-.info {
-  grid-area: info;
+.filmBody {
+  display: contents;
+}
+
+.filmHead {
+  grid-area: head;
+  align-self: center;
   display: grid;
-  gap: 4px;
+  gap: 8px;
   min-width: 0;
 }
 
-.time {
-  font-size: 15px;
-  color: var(--accent);
-  font-weight: 500;
-}
-
-.title {
-  font-size: 22px;
+.filmTitle {
+  font-size: 21px;
   letter-spacing: -0.02em;
 }
 
-.meta {
-  color: var(--ink-2);
+.filmMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
   font-size: 14px;
+  color: var(--ink-2);
+}
+
+.age {
+  display: inline-grid;
+  place-items: center;
+  min-width: 34px;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  box-shadow: inset 0 0 0 1px var(--ink-3);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .synopsis {
-  margin-top: 10px;
+  grid-area: syn;
   color: var(--ink-2);
-  max-width: 52ch;
+  max-width: 62ch;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
-.hall {
-  grid-area: hall;
+/* --- godziny seansów --------------------------------------------------- */
+
+.times {
+  grid-area: times;
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
-  align-items: center;
-  gap: 14px;
-  font-size: 14px;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
-.hall p {
+.time {
   display: grid;
-  gap: 2px;
-}
-
-.hallName {
-  color: var(--ink);
-  font-weight: 500;
-}
-
-.free {
-  color: var(--ink-2);
-}
-
-.soldOut {
-  color: var(--danger);
-}
-
-.cta {
-  grid-area: cta;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-pill);
+  gap: 3px;
+  min-width: 120px;
+  padding: 10px 14px 11px;
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
   box-shadow: inset 0 0 0 1px var(--line);
-  color: var(--ink);
   transition:
-    background-color 200ms ease,
-    color 200ms ease,
-    box-shadow 200ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease,
     transform 160ms var(--ease-out);
 }
 
-.cta svg {
-  transition: transform 220ms var(--ease-out);
-}
-
-.ctaLabel {
-  display: none;
-  font-size: 14px;
+.clock {
+  font-size: 20px;
   font-weight: 600;
-  white-space: nowrap;
+  line-height: 1.1;
+  color: var(--accent);
+  letter-spacing: -0.01em;
 }
 
-.row:active .cta {
-  transform: scale(0.96);
+.timeHall {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.fill {
+  display: block;
+  height: 3px;
+  margin: 4px 0 2px;
+  border-radius: 2px;
+  background: var(--seat-free);
+  overflow: hidden;
+}
+
+.fill > span {
+  display: block;
+  height: 100%;
+  background: var(--ink-2);
+  border-radius: inherit;
+}
+
+.freeSeats {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.soldOut {
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.time:active {
+  transform: scale(0.97);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .row:hover {
-    background: var(--bg-raised);
-  }
-  .row:hover .cta {
-    background: var(--accent);
-    color: var(--accent-ink);
-    box-shadow: none;
-  }
-  .row:hover .cta svg {
-    transform: translateX(2px);
+  a.time:hover {
+    background: var(--accent-soft);
+    box-shadow: inset 0 0 0 1px var(--accent-line);
   }
 }
 
-.row:focus-visible {
-  outline-offset: 0;
-  border-radius: var(--radius-lg);
+.timeDisabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.timeDisabled .clock {
+  color: var(--ink-3);
+  text-decoration: line-through;
 }
 
 @media (min-width: 760px) {
-  .row {
-    grid-template-columns: 88px minmax(0, 1.4fr) minmax(0, 1fr) auto;
-    grid-template-areas: "poster info hall cta";
-    column-gap: 28px;
-    --pad: 20px;
+  .film {
+    grid-template-columns: 180px minmax(0, 1fr);
+    grid-template-areas: none;
+    gap: 28px;
+    padding: 20px;
   }
 
-  .cta {
-    width: auto;
-    padding: 0 18px;
+  .filmPoster {
+    grid-area: auto;
   }
 
-  .ctaLabel {
-    display: inline;
+  .filmBody {
+    display: grid;
+    gap: 12px;
+    align-content: start;
+    min-width: 0;
+    padding-top: 4px;
   }
 
-  .title {
-    font-size: 24px;
+  .filmHead,
+  .synopsis,
+  .times {
+    grid-area: auto;
   }
 
-  .lead {
-    grid-template-columns: 200px minmax(0, 1.4fr) minmax(0, 1fr) auto;
-    align-items: end;
-    padding-top: 24px;
-    padding-bottom: 24px;
+  .times {
+    margin-top: 6px;
   }
 
-  .lead .title {
-    font-size: clamp(28px, 3.2vw, 40px);
-    letter-spacing: -0.03em;
+  .filmTitle {
+    font-size: 26px;
   }
-
-  .lead .time {
-    font-size: 17px;
-  }
-}
-
-@media (min-width: 1100px) {
-  .lead {
-    grid-template-columns: 240px minmax(0, 1.5fr) minmax(0, 1fr) auto;
-  }
-}
-
-.timeRow {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-}
-
-.price {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--ink-2);
-  font-variant-numeric: tabular-nums;
 }
