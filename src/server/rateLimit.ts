@@ -5,25 +5,24 @@ import { AppError } from "./errors";
 // Token bucket (E05) trzymany w bazie, więc wspólny dla wszystkich instancji serwera.
 // Doliczenie żetonów i pobranie jednego to jedna atomowa operacja (pipeline update),
 // bez wyścigu "przeczytaj, policz, zapisz".
-export async function takeToken(clientKey: string, scope: string): Promise<void> {
-  const { enabled, capacity, refillPerSec } = config.rateLimit;
-  if (!enabled || capacity <= 0) return;
 
+export type BucketOptions = { capacity: number; refillPerSec: number };
+export type BucketResult = { allowed: boolean; tokens: number; retryAfterSec: number };
+
+// Jedno wiadro: pobiera żeton, jeśli jest. Nie rzuca wyjątkiem, bo tego samego mechanizmu
+// używamy i do limitu żądań na IP (429), i do budżetu wywołań Voucherify (503).
+export async function takeFromBucket(id: string, { capacity, refillPerSec }: BucketOptions): Promise<BucketResult> {
   const { rateBuckets } = await collections();
   const now = new Date();
-  const idleTtlMs = Math.ceil((capacity / Math.max(refillPerSec, 0.001)) * 1000) + 60_000;
+  const rate = Math.max(refillPerSec, 0.000001);
+  const idleTtlMs = Math.ceil((capacity / rate) * 1000) + 60_000;
   const refill = {
     $min: [
       capacity,
       {
         $add: [
           { $ifNull: ["$tokens", capacity] },
-          {
-            $multiply: [
-              { $divide: [{ $subtract: [now, { $ifNull: ["$updatedAt", now] }] }, 1000] },
-              refillPerSec,
-            ],
-          },
+          { $multiply: [{ $divide: [{ $subtract: [now, { $ifNull: ["$updatedAt", now] }] }, 1000] }, rate] },
         ],
       },
     ],
@@ -31,7 +30,7 @@ export async function takeToken(clientKey: string, scope: string): Promise<void>
 
   const run = () =>
     rateBuckets.findOneAndUpdate(
-      { _id: `${scope}:${clientKey}` },
+      { _id: id },
       [
         { $set: { tokens: refill, updatedAt: now } },
         {
@@ -55,11 +54,28 @@ export async function takeToken(clientKey: string, scope: string): Promise<void>
   }
 
   const state = doc as unknown as { allowed?: boolean; tokens: number } | null;
-  if (state && state.allowed === false) {
-    const retryAfterSec = Math.max(1, Math.ceil((1 - state.tokens) / Math.max(refillPerSec, 0.001)));
+  const tokens = state?.tokens ?? capacity;
+  const allowed = state?.allowed !== false;
+  return { allowed, tokens, retryAfterSec: allowed ? 0 : Math.max(1, Math.ceil((1 - tokens) / rate)) };
+}
+
+// Oddanie żetonu: operacja, która nie doszła do zależności, nie powinna zużywać budżetu.
+export async function refundToBucket(id: string, capacity: number): Promise<void> {
+  const { rateBuckets } = await collections();
+  await rateBuckets.updateOne({ _id: id }, [
+    { $set: { tokens: { $min: [capacity, { $add: [{ $ifNull: ["$tokens", 0] }, 1] }] } } },
+  ]);
+}
+
+// Limit żądań na IP dla operacji zapisu: 429 z Retry-After.
+export async function takeToken(clientKey: string, scope: string): Promise<void> {
+  const { enabled, capacity, refillPerSec } = config.rateLimit;
+  if (!enabled || capacity <= 0) return;
+  const result = await takeFromBucket(`${scope}:${clientKey}`, { capacity, refillPerSec });
+  if (!result.allowed) {
     throw new AppError(429, "RATE_LIMITED", "Za dużo prób w krótkim czasie. Odczekaj chwilę.", {
       retryable: true,
-      retryAfterSec,
+      retryAfterSec: result.retryAfterSec,
     });
   }
 }

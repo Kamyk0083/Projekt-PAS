@@ -1,12 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowCounterClockwise, CircleNotch, CreditCard, Info, LockSimple, Warning } from "@phosphor-icons/react";
+import {
+  ArrowCounterClockwise,
+  CircleNotch,
+  Coins,
+  CreditCard,
+  Info,
+  LockSimple,
+  Warning,
+} from "@phosphor-icons/react";
 import { api, ApiError } from "@/client/api";
 import { usePolling } from "@/client/hooks";
 import { formatCountdown, formatPrice, formatTime, relativeDayLabel } from "@/lib/format";
 import { seatLabel } from "@/lib/hall";
+import { formatPoints, pointsToGrosze, spendablePoints } from "@/lib/loyalty";
 import type { ReservationView } from "@/lib/types";
 import { FlowSteps } from "@/components/FlowSteps";
 import { Ticket } from "./Ticket";
@@ -34,6 +43,12 @@ export function ReservationScreen({ initial, returned }: { initial: ReservationV
   const payingRef = useRef(false);
   payingRef.current = paying;
 
+  // Karta B: punkty do wydania na ten bilet. Saldo z serwera przychodzi z cache'a,
+  // więc po wejściu na ekran prosimy o świeże (osobny endpoint, nie ten odpytywany w pętli).
+  const [balance, setBalance] = useState<number | null>(initial.loyalty.balance);
+  const [points, setPoints] = useState(initial.pointsUsed);
+  const [loyaltyDown, setLoyaltyDown] = useState(false);
+
   // Zegar klienta może się różnić od serwera: liczymy przesunięcie raz, przy wczytaniu.
   const offsetRef = useRef(Date.parse(initial.serverTime) - Date.now());
   const expiresAt = Date.parse(view.expiresAt);
@@ -50,6 +65,26 @@ export function ReservationScreen({ initial, returned }: { initial: ReservationV
     const id = setInterval(tick, 250);
     return () => clearInterval(id);
   }, [phase, expiresAt]);
+
+  const refreshBalance = useCallback(async () => {
+    try {
+      const fresh = await api<{ balance: number }>(`/api/reservations/${initial.reservationId}/loyalty`, {
+        retries: 1,
+        timeoutMs: 7000,
+      });
+      setBalance(fresh.balance);
+      setLoyaltyDown(false);
+      return fresh.balance;
+    } catch {
+      // Łagodna degradacja: bez salda po prostu nie proponujemy punktów.
+      setLoyaltyDown(true);
+      return null;
+    }
+  }, [initial.reservationId]);
+
+  useEffect(() => {
+    if (phase === "held") refreshBalance();
+  }, [phase, refreshBalance]);
 
   // Po opłaceniu sprzątamy ?platnosc z adresu: odświeżenie strony pokaże po prostu bilet.
   useEffect(() => {
@@ -94,6 +129,7 @@ export function ReservationScreen({ initial, returned }: { initial: ReservationV
       // Serwer zwraca tę samą sesję przy ponowieniu, więc retry jest bezpieczny.
       const { url } = await api<{ url: string }>(`/api/reservations/${view.reservationId}/checkout`, {
         method: "POST",
+        body: { points },
         idempotent: true,
         // Klient czeka przed ekranem: jedno ponowienie, potem komunikat i przycisk.
         retries: 1,
@@ -109,6 +145,16 @@ export function ReservationScreen({ initial, returned }: { initial: ReservationV
       }
       if (err instanceof ApiError && err.code === "RATE_LIMITED") {
         return setError("Za dużo prób w krótkim czasie. Odczekaj kilka sekund i spróbuj ponownie.");
+      }
+      if (err instanceof ApiError && err.code === "INSUFFICIENT_POINTS") {
+        const fresh = await refreshBalance();
+        if (fresh !== null) setPoints((p) => Math.min(p, spendablePoints(view.amount, fresh)));
+        return setError(err.message);
+      }
+      if (err instanceof ApiError && (err.code === "LOYALTY_UNAVAILABLE" || err.code === "LOYALTY_BUSY")) {
+        setLoyaltyDown(true);
+        setPoints(0);
+        return setError("Punkty są chwilowo niedostępne. Możesz zapłacić całą kwotę kartą.");
       }
       setError(err instanceof ApiError ? err.message : "Nie udało się otworzyć płatności. Spróbuj ponownie.");
     }
@@ -129,6 +175,10 @@ export function ReservationScreen({ initial, returned }: { initial: ReservationV
           paying={paying}
           error={error}
           cancelled={returned === "cancelled"}
+          balance={balance}
+          loyaltyDown={loyaltyDown}
+          points={points}
+          onPoints={setPoints}
           onPay={pay}
         />
       )}
@@ -139,7 +189,7 @@ export function ReservationScreen({ initial, returned }: { initial: ReservationV
   );
 }
 
-function Summary({ view }: { view: ReservationView }) {
+function Summary({ view, points }: { view: ReservationView; points: number }) {
   const { event } = view;
   return (
     <dl className={styles.summary}>
@@ -167,9 +217,23 @@ function Summary({ view }: { view: ReservationView }) {
           {view.customerName}, <span className={styles.email}>{view.emailMasked}</span>
         </dd>
       </div>
+      {points > 0 && (
+        <>
+          <div>
+            <dt>Cena biletu</dt>
+            <dd>{formatPrice(view.amount)}</dd>
+          </div>
+          <div>
+            <dt>Punkty</dt>
+            <dd className={styles.discount}>
+              −{formatPrice(pointsToGrosze(points))} <span>({formatPoints(points)})</span>
+            </dd>
+          </div>
+        </>
+      )}
       <div className={styles.total}>
-        <dt>Do zapłaty</dt>
-        <dd>{formatPrice(view.amount)}</dd>
+        <dt>Do zapłaty kartą</dt>
+        <dd>{formatPrice(view.amount - pointsToGrosze(points))}</dd>
       </div>
     </dl>
   );
@@ -181,16 +245,31 @@ type HeldProps = {
   paying: boolean;
   error: string | null;
   cancelled: boolean;
+  balance: number | null;
+  loyaltyDown: boolean;
+  points: number;
+  onPoints: (points: number) => void;
   onPay: () => void;
 };
 
-function Held({ view, remaining, paying, error, cancelled, onPay }: HeldProps) {
+function Held({
+  view,
+  remaining,
+  paying,
+  error,
+  cancelled,
+  balance,
+  loyaltyDown,
+  points,
+  onPoints,
+  onPay,
+}: HeldProps) {
   const total = Math.max(1, Date.parse(view.expiresAt) - Date.parse(view.serverTime));
   const fraction = Math.min(1, Math.max(0, remaining / total));
   const urgent = remaining <= 60_000;
   const announced = useRef(false);
   const [announcement, setAnnouncement] = useState("");
-  const price = formatPrice(view.amount);
+  const price = formatPrice(view.amount - pointsToGrosze(points));
 
   useEffect(() => {
     if (urgent && !announced.current && remaining > 0) {
@@ -228,7 +307,16 @@ function Held({ view, remaining, paying, error, cancelled, onPay }: HeldProps) {
             Płatność przerwana, nic nie pobraliśmy. Fotel nadal na Ciebie czeka, możesz zapłacić jeszcze raz.
           </p>
         )}
-        <Summary view={view} />
+        <Summary view={view} points={points} />
+        <PointsField
+          amount={view.amount}
+          maxPoints={view.loyalty.maxPoints}
+          balance={balance}
+          unavailable={loyaltyDown}
+          points={points}
+          disabled={paying}
+          onPoints={onPoints}
+        />
         {error && (
           <p className={styles.error} role="alert">
             <Warning size={18} weight="bold" aria-hidden />
@@ -268,6 +356,87 @@ function Held({ view, remaining, paying, error, cancelled, onPay }: HeldProps) {
   );
 }
 
+type PointsProps = {
+  amount: number;
+  maxPoints: number;
+  balance: number | null;
+  unavailable: boolean;
+  points: number;
+  disabled: boolean;
+  onPoints: (points: number) => void;
+};
+
+// Karta B: „Użyj punktów”. Maksimum to mniejsze z połowy ceny i salda klienta,
+// a cena nad przyciskiem zmienia się od razu. Reguły liczy ta sama funkcja co serwer.
+function PointsField({ amount, maxPoints, balance, unavailable, points, disabled, onPoints }: PointsProps) {
+  const id = useId();
+  const spendable = balance === null ? 0 : spendablePoints(amount, balance);
+
+  if (unavailable || balance === null) {
+    return (
+      <p className={styles.pointsOff} role="status">
+        <Coins size={18} weight="bold" aria-hidden />
+        Nie udało się sprawdzić Twoich punktów. Zapłać całość kartą, punkty za ten zakup i tak naliczymy.
+      </p>
+    );
+  }
+
+  if (spendable <= 0) {
+    return (
+      <p className={styles.pointsOff} role="status">
+        <Coins size={18} weight="bold" aria-hidden />
+        Masz {formatPoints(balance)}. Punktami zapłacisz, gdy uzbierasz co najmniej 100 (1 zł).
+      </p>
+    );
+  }
+
+  const set = (value: number) => onPoints(Math.max(0, Math.min(spendable, Math.round(value))));
+
+  return (
+    <section className={styles.points}>
+      <div className={styles.pointsHead}>
+        <label htmlFor={`${id}-points`}>
+          <Coins size={18} weight="bold" aria-hidden />
+          Użyj punktów
+        </label>
+        <button type="button" className={styles.pointsMax} onClick={() => set(spendable)} disabled={disabled}>
+          Wykorzystaj {spendable}
+        </button>
+      </div>
+      <div className={styles.pointsRow}>
+        <input
+          id={`${id}-points`}
+          type="number"
+          inputMode="numeric"
+          min={0}
+          max={spendable}
+          step={100}
+          value={points}
+          disabled={disabled}
+          onChange={(e) => set(Number(e.target.value))}
+          aria-describedby={`${id}-points-hint`}
+        />
+        <span className={styles.pointsValue}>= {formatPrice(pointsToGrosze(points))}</span>
+      </div>
+      <input
+        className={styles.pointsSlider}
+        type="range"
+        min={0}
+        max={spendable}
+        step={100}
+        value={points}
+        disabled={disabled}
+        onChange={(e) => set(Number(e.target.value))}
+        aria-label="Punkty do wykorzystania"
+      />
+      <p id={`${id}-points-hint`} className={styles.pointsHint}>
+        Masz {formatPoints(balance)}. Przy tym bilecie zapłacisz punktami najwyżej {maxPoints} (
+        {formatPrice(pointsToGrosze(maxPoints))}), czyli połowę ceny. 100 punktów to 1 zł.
+      </p>
+    </section>
+  );
+}
+
 function Processing({ view }: { view: ReservationView }) {
   const [slow, setSlow] = useState(false);
   useEffect(() => {
@@ -286,7 +455,7 @@ function Processing({ view }: { view: ReservationView }) {
       <p role="status">
         {slow
           ? "Potwierdzenie od operatora płatności się opóźnia. Nie płać drugi raz: bilet pojawi się tutaj, gdy tylko dotrze."
-          : `Czekamy na potwierdzenie płatności ${formatPrice(view.amount)}. Zwykle trwa to kilka sekund, bilet pojawi się tutaj sam.`}
+          : `Czekamy na potwierdzenie płatności ${formatPrice(view.cardAmount)}. Zwykle trwa to kilka sekund, bilet pojawi się tutaj sam.`}
       </p>
       <p className={styles.processingMeta}>
         {view.event.film}, {seatLabel(view.seatId)}
@@ -303,8 +472,9 @@ function Expired({ view }: { view: ReservationView }) {
         <p>
           Rezerwacja zdążyła wygasnąć, a ten fotel zajął już ktoś inny.{" "}
           {view.refund === "succeeded"
-            ? `Zwróciliśmy ${formatPrice(view.amount)} na Twoją kartę.`
-            : `Zlecamy zwrot ${formatPrice(view.amount)} na Twoją kartę.`}{" "}
+            ? `Zwróciliśmy ${formatPrice(view.cardAmount)} na Twoją kartę.`
+            : `Zlecamy zwrot ${formatPrice(view.cardAmount)} na Twoją kartę.`}{" "}
+          {view.pointsUsed > 0 && "Punkty wróciły na Twoje konto. "}
           Bank zwykle księguje zwrot w ciągu kilku dni.
         </p>
         <div className={styles.actions}>
@@ -337,20 +507,47 @@ function Expired({ view }: { view: ReservationView }) {
   );
 }
 
-// Maili nie wysyłamy naprawdę (dostawca w tle jest symulowany), więc ekran
-// nie może tego obiecywać: jedynym nośnikiem biletu jest kod na tej stronie.
+// Karta C: bilet i podsumowanie zakupu. Dokładnie to samo rozliczenie, co w mailu.
 function Paid({ view }: { view: ReservationView }) {
   return (
     <div className={styles.purchased}>
       <div className={styles.purchasedHead}>
         <h1>Bilet jest Twój</h1>
         <p>
-          Zapłacono {formatPrice(view.amount)}. Pokaż kod przy wejściu do sali.
+          {view.pointsUsed > 0
+            ? `Zapłacono ${formatPrice(view.cardAmount)} kartą i ${formatPoints(view.pointsUsed)} z konta. Pokaż kod przy wejściu do sali.`
+            : `Zapłacono ${formatPrice(view.cardAmount)}. Pokaż kod przy wejściu do sali.`}
         </p>
       </div>
       <Ticket view={view} />
+      <dl className={styles.receipt}>
+        <div>
+          <dt>Cena biletu</dt>
+          <dd>{formatPrice(view.amount)}</dd>
+        </div>
+        <div>
+          <dt>Zapłacono kartą</dt>
+          <dd>{formatPrice(view.cardAmount)}</dd>
+        </div>
+        {view.pointsUsed > 0 && (
+          <div>
+            <dt>Zapłacono punktami</dt>
+            <dd>
+              {formatPoints(view.pointsUsed)} <span>({formatPrice(view.pointsValue)})</span>
+            </dd>
+          </div>
+        )}
+        <div className={styles.earned}>
+          <dt>Punkty za ten zakup</dt>
+          <dd>+{view.pointsEarned}</dd>
+        </div>
+      </dl>
       <p className={styles.mail}>
-        Zapisz kod albo zrób zrzut ekranu. Ta strona zostaje pod tym samym adresem, więc możesz do niej wrócić.
+        {view.emailStatus === "failed"
+          ? "Maila z biletem nie udało się doręczyć (sprawdź adres). Zapisz kod albo zrób zrzut ekranu: ta strona zostaje pod tym samym adresem."
+          : view.emailStatus === "sent"
+            ? "Podsumowanie zakupu wysłaliśmy mailem. Ta strona zostaje pod tym samym adresem, więc możesz do niej wrócić."
+            : "Mail z biletem i podsumowaniem jest w drodze. Kod działa od razu, niezależnie od maila."}
       </p>
       <Link className="btn btn-ghost" href="/">
         Wróć do repertuaru

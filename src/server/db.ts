@@ -33,6 +33,20 @@ export type SeatDoc = {
   updatedAt: Date;
 };
 
+// Jedna próba płatności. Trzymamy całą historię prób, bo punkty rezerwujemy PRZED
+// utworzeniem sesji Stripe'a, a spóźniony webhook ze starej sesji musi być sprawdzony
+// względem kwoty swojej własnej próby, nie tej aktualnej (etap III).
+export type CheckoutAttempt = {
+  n: number;
+  expiresAt: Date;
+  points: number; // punkty zdjęte z karty klienta na tę próbę
+  cardAmount: number; // kwota, na jaką ma być sesja Stripe'a (amount - points)
+  // "pending": wywołanie do Voucherify mogło wyjść, ale nie znamy wyniku (kompensacja sprawdzi marker).
+  pointsState: "none" | "pending" | "reserved" | "released" | "consumed" | "failed";
+  sessionId?: string;
+  url?: string;
+};
+
 export type ReservationDoc = {
   _id: string;
   eventId: string;
@@ -48,11 +62,34 @@ export type ReservationDoc = {
   purchasedAt?: Date; // chwila opłacenia (nazwa z etapu I)
   code?: string;
   idempotencyKey?: string;
-  // Bieżąca sesja Stripe Checkout. attempt rośnie, gdy poprzednia sesja wygasa.
-  checkout?: { attempt: number; expiresAt: Date; sessionId?: string; url?: string };
+  // Próby płatności, od najstarszej. Ostatnia jest bieżąca.
+  checkouts?: CheckoutAttempt[];
   payment?: { sessionId: string; paymentIntentId: string | null; amount: number; paidAt: Date };
+  // Rozliczenie punktów opłaconego biletu (etap III).
+  pointsUsed?: number;
+  pointsEarned?: number;
   // Płatność, która przyszła, gdy fotel miał już innego właściciela: oddajemy pieniądze.
   refund?: { sessionId: string; paymentIntentId: string; status: "pending" | "succeeded"; refundId?: string };
+};
+
+// Konto punktowe klienta po naszej stronie. Saldo prowadzi Voucherify: tutaj trzymamy
+// tylko ID karty, ślad punktów powitalnych i krótkotrwały cache salda do podpowiedzi w UI.
+export type LoyaltyAccountDoc = {
+  _id: string; // e-mail klienta (identyfikator w Voucherify)
+  memberId?: string;
+  welcomeGrantedAt?: Date;
+  existedBefore?: boolean;
+  balance?: number;
+  balanceAt?: Date;
+  createdAt: Date;
+};
+
+// Dostawca symulowany punktów (gdy nie ma kluczy Voucherify): demo i testy bez konta.
+export type LoyaltySimDoc = {
+  _id: string; // memberId
+  email: string;
+  balance: number;
+  transactions: { marker: string; points: number; at: Date }[];
 };
 
 // Zdarzenia od Stripe'a, które już obsłużyliśmy (deduplikacja webhooków i ślad audytowy).
@@ -64,15 +101,22 @@ export type StripeEventDoc = {
   receivedAt: Date;
 };
 
+// ticket-email: wysyłka biletu (etap I/II/III).
+// loyalty-earn: naliczenie punktów za zakup; loyalty-release: zwrot punktów, za które
+// nie doszło do zapłaty (kompensacja). Oba dotykają Voucherify, więc idą przez kolejkę.
+export type JobTopic = "ticket-email" | "loyalty-earn" | "loyalty-release";
+
 export type JobDoc = {
   _id: string;
-  topic: "ticket-email";
-  payload: { reservationId: string };
+  topic: JobTopic;
+  payload: { reservationId: string; email?: string; points?: number; attempt?: number };
   status: "pending" | "processing" | "done" | "dead";
   deliveryCount: number;
   visibleAt: Date;
   createdAt: Date;
   updatedAt: Date;
+  // Znacznik "żądanie do zależności mogło wyjść": po ponowieniu nie wolno zgadywać.
+  issuedAt?: Date;
   lastError?: string;
 };
 
@@ -86,11 +130,12 @@ export type DeadLetterDoc = {
 };
 
 export type MailDoc = {
-  _id: string; // klucz idempotencji u "dostawcy" maili
+  _id: string; // klucz idempotencji u dostawcy maili (= ID zadania w kolejce)
   to: string;
   subject: string;
   body: string;
   sentAt: Date;
+  providerId?: string; // ID wiadomości u dostawcy (Resend), do powiązania ze zdarzeniami
 };
 
 export type RateBucketDoc = {
@@ -109,6 +154,8 @@ export type Collections = {
   mails: Collection<MailDoc>;
   rateBuckets: Collection<RateBucketDoc>;
   stripeEvents: Collection<StripeEventDoc>;
+  loyaltyAccounts: Collection<LoyaltyAccountDoc>;
+  loyaltySim: Collection<LoyaltySimDoc>;
 };
 
 type DbState = { client: MongoClient; db: Db; cols: Collections; memory: boolean };
@@ -155,6 +202,8 @@ async function init(): Promise<DbState> {
     mails: db.collection<MailDoc>("mails"),
     rateBuckets: db.collection<RateBucketDoc>("rateBuckets"),
     stripeEvents: db.collection<StripeEventDoc>("stripeEvents"),
+    loyaltyAccounts: db.collection<LoyaltyAccountDoc>("loyaltyAccounts"),
+    loyaltySim: db.collection<LoyaltySimDoc>("loyaltySim"),
   };
   await ensureIndexes(cols);
   await seedEvents(cols.events);
@@ -172,7 +221,10 @@ async function ensureIndexes(cols: Collections) {
     cols.jobs.createIndex({ status: 1, visibleAt: 1 }),
     // Wiadra limitera sprzątają się same po okresie bezczynności.
     cols.rateBuckets.createIndex({ expireAt: 1 }, { expireAfterSeconds: 0 }),
-    cols.reservations.createIndex({ "checkout.sessionId": 1 }, { sparse: true }),
+    cols.reservations.createIndex({ "checkouts.sessionId": 1 }, { sparse: true }),
+    // Zwrot punktów po wygaśnięciu rezerwacji: szukamy tylko tych z zarezerwowanymi punktami.
+    cols.reservations.createIndex({ "checkouts.pointsState": 1, expiresAt: 1 }, { sparse: true }),
+    cols.loyaltySim.createIndex({ email: 1 }),
     // Stripe ponawia zdarzenia najwyżej przez 3 dni, więc 30 dni pamięci w zupełności wystarcza.
     cols.stripeEvents.createIndex({ receivedAt: 1 }, { expireAfterSeconds: 30 * 24 * 3600 }),
   ]);

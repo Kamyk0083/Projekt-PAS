@@ -132,7 +132,9 @@ afterAll(async () => {
 describe("A. Cena i checkout", () => {
   it("wydarzenie ma price, rezerwacja zwraca amount z chwili rezerwacji", async () => {
     const events = await (await listEvents(new Request("http://test/api/events"), undefined as never)).json();
-    expect(events.every((e: { price: number }) => e.price === 3200)).toBe(true);
+    // Każdy seans ma cenę w groszach; repertuar ma też tańsze poranki, więc nie wszystkie po 3200.
+    expect(events.every((e: { price: number }) => Number.isInteger(e.price) && e.price > 0)).toBe(true);
+    expect(events.find((e: { id: string }) => e.id === EVENT).price).toBe(3200);
     const details = await (await getEvent(new Request(`http://test/api/events/${EVENT}`), ctx(EVENT))).json();
     expect(details.event.price).toBe(3200);
 

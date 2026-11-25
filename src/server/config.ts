@@ -40,6 +40,41 @@ export const config = {
       timeoutMs: num("MAILER_TIMEOUT_MS", 2000),
     };
   },
+  // Poczta (etap III). Bez RESEND_API_KEY zostaje dostawca symulowany z etapu I,
+  // żeby aplikacja i testy działały bez kluczy. Klucz tylko w env serwera.
+  get mail() {
+    const apiKey = process.env.RESEND_API_KEY || "";
+    const wanted = (process.env.MAIL_PROVIDER || "").toLowerCase();
+    const provider: "resend" | "simulated" = wanted === "simulated" ? "simulated" : apiKey ? "resend" : "simulated";
+    return {
+      provider,
+      apiKey,
+      // Bez własnej domeny Resend wysyła tylko z onboarding@resend.dev.
+      from: process.env.MAIL_FROM || "Kino Pasaż <onboarding@resend.dev>",
+      timeoutMs: num("MAIL_TIMEOUT_MS", 8000),
+    };
+  },
+  // Program lojalnościowy w Voucherify (etap III). Saldo prowadzi Voucherify, nie nasza baza.
+  get loyalty() {
+    const appId = process.env.VOUCHERIFY_APP_ID || "";
+    const secretKey = process.env.VOUCHERIFY_SECRET_KEY || "";
+    const campaignId = process.env.VOUCHERIFY_CAMPAIGN_ID || "";
+    const wanted = (process.env.LOYALTY_PROVIDER || "").toLowerCase();
+    const live = Boolean(appId && secretKey && campaignId) && wanted !== "simulated";
+    return {
+      provider: (live ? "voucherify" : "simulated") as "voucherify" | "simulated",
+      appId,
+      secretKey,
+      campaignId,
+      // Klaster konta: api, eu1, as1 (https://docs.voucherify.io/api-reference/authentication).
+      apiUrl: (process.env.VOUCHERIFY_API_URL || "https://api.voucherify.io").replace(/\/$/, ""),
+      timeoutMs: num("VOUCHERIFY_TIMEOUT_MS", 6000),
+      // Sandbox przyjmuje 100 wywołań na godzinę: zostawiamy sobie zapas (E05).
+      budgetPerHour: num("VOUCHERIFY_BUDGET_PER_HOUR", 80),
+      // Saldo z Voucherify podpowiadamy w UI z cache'a; nasze własne operacje go odświeżają.
+      cacheTtlMs: num("LOYALTY_CACHE_TTL_SECONDS", 45) * 1000,
+    };
+  },
   get workerEnabled() {
     return bool("WORKER_ENABLED", true);
   },

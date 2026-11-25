@@ -36,6 +36,15 @@ export type ReservationView = {
   status: ReservationStatus;
   amount: number; // w groszach, zapisane w chwili rezerwacji
   currency: "pln";
+  // Rozliczenie z programem lojalnościowym (etap III). 1 punkt = 1 grosz.
+  pointsUsed: number; // punkty wydane na ten bilet (przed zapłatą: zdjęte na bieżącą próbę)
+  pointsEarned: number; // punkty za ten zakup, dopisane po opłaceniu (wcześniej 0)
+  pointsValue: number; // wartość pointsUsed w groszach
+  cardAmount: number; // do dopłaty kartą: amount - pointsValue
+  loyalty: {
+    balance: number | null; // saldo z cache'a serwera; null, gdy nic jeszcze nie wiemy
+    maxPoints: number; // najwięcej punktów na ten bilet (połowa ceny)
+  };
   expiresAt: string;
   code?: string; // tylko gdy status = "paid"
   purchasedAt: string | null; // chwila opłacenia
@@ -44,6 +53,9 @@ export type ReservationView = {
   event: CinemaEvent;
   serverTime: string; // do korekty przesunięcia zegara klienta
 };
+
+// GET /api/loyalty?email=... (karta A)
+export type LoyaltyView = { email: string; points: number };
 
 export type ApiErrorBody = {
   error: string;

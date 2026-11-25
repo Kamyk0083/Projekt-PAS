@@ -3,12 +3,13 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { CircleNotch, Info, Warning, X } from "@phosphor-icons/react";
+import { CircleNotch, Coins, Info, Warning, X } from "@phosphor-icons/react";
 import { api, ApiError, newIdempotencyKey } from "@/client/api";
 import { readStored, useMediaQuery, writeStored } from "@/client/hooks";
 import { parseSeatId, totalSeats } from "@/lib/hall";
 import { formatPrice, pluralSeats } from "@/lib/format";
-import type { CinemaEvent } from "@/lib/types";
+import { formatPoints, maxPointsFor, pointsToGrosze, spendablePoints } from "@/lib/loyalty";
+import type { CinemaEvent, LoyaltyView } from "@/lib/types";
 import styles from "./BookingPanel.module.css";
 
 export type Notice = { tone: "info" | "warn"; text: string };
@@ -133,6 +134,9 @@ function ReservationForm({ event, seat, ttlMinutes, onClose, onConflict }: FormP
   const [error, setError] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
+  // Karta A: saldo punktów po wpisaniu e-maila. Pytamy raz na adres (limit wywołań Voucherify).
+  const [points, setPoints] = useState<number | null>(null);
+  const [pointsFor, setPointsFor] = useState("");
   // Jeden klucz idempotencji na jedną intencję (fotel + dane). Ponowienia go reużywają.
   const keyRef = useRef<{ intent: string; key: string } | null>(null);
 
@@ -145,6 +149,20 @@ function ReservationForm({ event, seat, ttlMinutes, onClose, onConflict }: FormP
 
   const errors = validate(name, email);
   const parsed = parseSeatId(seat);
+
+  // Saldo sprawdzamy po opuszczeniu pola, nie przy każdym znaku.
+  async function checkPoints() {
+    const address = email.trim().toLowerCase();
+    if (!EMAIL.test(address) || address === pointsFor) return;
+    setPointsFor(address);
+    try {
+      const view = await api<LoyaltyView>(`/api/loyalty?email=${encodeURIComponent(address)}`, { retries: 1 });
+      setPoints(view.points);
+    } catch {
+      // Program lojalnościowy to zależność zewnętrzna: bez niej rezerwacja działa normalnie.
+      setPoints(null);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -243,13 +261,16 @@ function ReservationForm({ event, seat, ttlMinutes, onClose, onConflict }: FormP
           value={email}
           maxLength={200}
           onChange={(e) => setEmail(e.target.value)}
-          onBlur={() => setTouched((t) => ({ ...t, email: true }))}
+          onBlur={() => {
+            setTouched((t) => ({ ...t, email: true }));
+            checkPoints();
+          }}
           aria-invalid={touched.email && !!errors.email}
           aria-describedby={`${formId}-email-hint${touched.email && errors.email ? ` ${formId}-email-err` : ""}`}
           disabled={pending}
         />
         <p id={`${formId}-email-hint`} className={styles.hint}>
-          Przypiszemy do niego rezerwację.
+          Przypiszemy do niego rezerwację, bilet i konto punktowe.
         </p>
         {touched.email && errors.email && (
           <p id={`${formId}-email-err`} className={styles.fieldError}>
@@ -257,6 +278,17 @@ function ReservationForm({ event, seat, ttlMinutes, onClose, onConflict }: FormP
           </p>
         )}
       </div>
+
+      {points !== null && (
+        <p className={styles.loyalty} role="status">
+          <Coins size={18} weight="bold" aria-hidden />
+          <span>
+            Masz {formatPoints(points)} ({formatPrice(pointsToGrosze(points))}). Przy tym bilecie zapłacisz nimi do{" "}
+            {formatPrice(pointsToGrosze(spendablePoints(event.price, points)))} z {formatPrice(event.price)}
+            {points >= maxPointsFor(event.price) ? ", czyli połowę ceny." : "."}
+          </span>
+        </p>
+      )}
 
       {error && (
         <p className={styles.formError} role="alert">

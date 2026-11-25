@@ -1,10 +1,13 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
-import { collections, duplicateKeyField, getDb, isDuplicateKey, type JobDoc, type ReservationDoc } from "./db";
+import { collections, duplicateKeyField, getDb, isDuplicateKey, type ReservationDoc } from "./db";
 import { config } from "./config";
 import { AppError, badRequest, notFound } from "./errors";
 import { getEventDoc, toEvent } from "./events";
+import { ticketEmailJob } from "./jobs";
+import { cachedBalance } from "./loyalty";
 import { isSeatInHall } from "@/lib/hall";
+import { maxPointsFor, pointsToGrosze } from "@/lib/loyalty";
 import type { EmailStatus, ReservationStatus, ReservationView } from "@/lib/types";
 
 export const reservationInput = z.object({
@@ -117,6 +120,7 @@ export async function reserve(input: ReservationInput, idempotencyKey?: string):
           currency: "pln",
           expiresAt,
           createdAt: now,
+          checkouts: [],
           ...(idempotencyKey ? { idempotencyKey } : {}),
         },
         { session },
@@ -235,19 +239,6 @@ async function legacyPurchase(reservationId: string): Promise<{ code: string; re
   }
 }
 
-export function ticketEmailJob(reservationId: string, now: Date): JobDoc {
-  return {
-    _id: `ticket-email:${reservationId}`,
-    topic: "ticket-email",
-    payload: { reservationId },
-    status: "pending",
-    deliveryCount: 0,
-    visibleAt: now,
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
 function maskEmail(email: string): string {
   const [local, domain] = email.split("@");
   if (!domain) return email;
@@ -275,6 +266,20 @@ export async function getReservation(rawId: string): Promise<ReservationView> {
     emailStatus = job?.status === "done" ? "sent" : job?.status === "dead" ? "failed" : "pending";
   }
 
+  // Rozliczenie punktów (etap III). Przed zapłatą pokazujemy punkty zdjęte na bieżącą próbę
+  // płatności, po zapłacie to, co faktycznie weszło do rachunku.
+  const amount = doc.amount ?? event.price;
+  const attempt = (doc.checkouts ?? []).at(-1);
+  const reserved =
+    attempt && attempt.expiresAt > now && (attempt.pointsState === "reserved" || attempt.pointsState === "pending")
+      ? attempt.points
+      : 0;
+  const pointsUsed = isPaid(doc) ? (doc.pointsUsed ?? 0) : reserved;
+  const pointsEarned = isPaid(doc) ? (doc.pointsEarned ?? 0) : 0;
+  // Saldo tylko z naszego cache'a: ten endpoint jest odpytywany w pętli, więc nie wolno mu
+  // ruszać Voucherify. Świeże saldo daje GET /api/loyalty i /api/reservations/:id/loyalty.
+  const balance = await cachedBalance(doc.email);
+
   return {
     reservationId: doc._id,
     eventId: doc.eventId,
@@ -283,8 +288,13 @@ export async function getReservation(rawId: string): Promise<ReservationView> {
     emailMasked: maskEmail(doc.email),
     status,
     // Rezerwacje sprzed etapu II nie mają zapisanej kwoty: wtedy obowiązuje cena seansu.
-    amount: doc.amount ?? event.price,
+    amount,
     currency: "pln",
+    pointsUsed,
+    pointsEarned,
+    pointsValue: pointsToGrosze(pointsUsed),
+    cardAmount: amount - pointsToGrosze(pointsUsed),
+    loyalty: { balance, maxPoints: maxPointsFor(amount) },
     expiresAt: doc.expiresAt.toISOString(),
     ...(status === "paid" && doc.code ? { code: doc.code } : {}),
     purchasedAt: doc.purchasedAt?.toISOString() ?? null,

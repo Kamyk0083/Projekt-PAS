@@ -343,3 +343,165 @@
     opacity: 0.6;
   }
 }
+
+
+/* --- punkty lojalnościowe (etap III) ------------------------------------- */
+
+.discount {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.discount span {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.points {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.pointsHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pointsHead label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.pointsHead svg {
+  color: var(--accent);
+}
+
+.pointsMax {
+  padding: 5px 10px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s var(--ease-out);
+}
+
+.pointsMax:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.pointsMax:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pointsRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pointsRow input {
+  width: 7rem;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  color: var(--ink);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.pointsRow input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.pointsValue {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.pointsSlider {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.pointsHint {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.pointsOff {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.pointsOff svg {
+  flex: none;
+  color: var(--ink-3);
+  transform: translateY(1px);
+}
+
+/* podsumowanie zakupu pod biletem (karta C) */
+.receipt {
+  display: grid;
+  width: 100%;
+  margin: 0;
+  padding: 4px 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  font-size: 14px;
+}
+
+.receipt > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.receipt > div + div {
+  border-top: 1px solid var(--line-soft);
+}
+
+.receipt dt {
+  color: var(--ink-3);
+}
+
+.receipt dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.receipt dd span {
+  color: var(--ink-3);
+}
+
+.receipt > .earned dd {
+  color: var(--accent);
+  font-weight: 600;
+}

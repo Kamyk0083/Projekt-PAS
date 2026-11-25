@@ -1,31 +1,44 @@
 import { collections, isDuplicateKey, type JobDoc } from "./db";
 import { CircuitOpenError } from "./circuitBreaker";
-import { mailBreaker, sendMail } from "./mailer";
+import { mailBreaker, MailRejectedError, sendMail } from "./mailer";
+import { earnMarker, grantPoints, markerApplied, releaseMarker, spendMarker, spendPoints } from "./loyalty";
+import { releaseAbandonedPoints, setAttemptPointsState } from "./payments";
 import { isPaid, sweepExpired } from "./reservations";
-import { seatLabel } from "@/lib/hall";
+import { buildTicketMail } from "./ticketMail";
+import { loyaltyBreaker } from "./voucherify";
 
 // Praca w tle (E06). Kolejka to kolekcja `jobs` (zasilana przez transactional outbox przy zakupie).
 // - receive: atomowe przejęcie zadania z "visibility timeout" (zadanie ukryte, nie usunięte),
 // - ack PO pracy: worker padnie w połowie -> zadanie wróci (at-least-once),
-// - duplikaty: dostawca maili deduplikuje po kluczu idempotencji = ID zadania,
+// - duplikaty: dostawca maili deduplikuje po kluczu idempotencji = ID zadania, a operacje
+//   na punktach rozpoznajemy po markerze w historii karty w Voucherify,
 // - retry z wykładniczym backoffem, limit prób, dead letter queue na zatrute wiadomości.
 
 const VISIBILITY_TIMEOUT_MS = 30_000;
 const MAX_ATTEMPTS = 5;
 const BATCH = 8;
 
+/** Zadania, których nie ma sensu ponawiać: idą od razu do DLQ. */
 class PermanentJobError extends Error {}
+/**
+ * Nie wiemy, czy operacja na zewnętrznej usłudze przeszła. Zgadywanie oznaczałoby podwójne
+ * naliczenie punktów albo ich utratę, więc zadanie idzie do DLQ do decyzji człowieka.
+ */
+class AmbiguousStateError extends Error {}
 
 function backoffMs(deliveryCount: number) {
   const base = Math.min(300, 2 ** deliveryCount * 5) * 1000;
   return Math.round(base * (0.5 + Math.random() * 0.5)); // jitter, żeby ponowienia się nie zbiegały
 }
 
-async function claimJob(): Promise<JobDoc | null> {
+// Zadania mailowe i punktowe mają osobne bezpieczniki: awaria Voucherify nie wstrzymuje maili.
+const breakerFor = (topic: JobDoc["topic"]) => (topic === "ticket-email" ? mailBreaker : loyaltyBreaker);
+
+async function claimJob(topics: JobDoc["topic"][]): Promise<JobDoc | null> {
   const { jobs } = await collections();
   const now = new Date();
   return jobs.findOneAndUpdate(
-    { status: { $in: ["pending", "processing"] }, visibleAt: { $lte: now } },
+    { topic: { $in: topics }, status: { $in: ["pending", "processing"] }, visibleAt: { $lte: now } },
     {
       $set: { status: "processing", visibleAt: new Date(now.getTime() + VISIBILITY_TIMEOUT_MS), updatedAt: now },
       $inc: { deliveryCount: 1 },
@@ -54,6 +67,8 @@ async function deadLetter(job: JobDoc, reason: string) {
   );
 }
 
+// ---- Wysyłka biletu (karta C) ------------------------------------------------
+
 async function handleTicketEmail(job: JobDoc) {
   const { reservations, events } = await collections();
   const reservation = await reservations.findOne({ _id: job.payload.reservationId });
@@ -61,22 +76,81 @@ async function handleTicketEmail(job: JobDoc) {
     throw new PermanentJobError(`Brak opłaconej rezerwacji ${job.payload.reservationId}`);
   }
   const event = await events.findOne({ _id: reservation.eventId });
-  const when = event
-    ? new Intl.DateTimeFormat("pl-PL", { dateStyle: "full", timeStyle: "short", timeZone: "Europe/Warsaw" }).format(
-        event.startsAt,
-      )
-    : "";
-  await sendMail({
-    idempotencyKey: job._id,
-    to: reservation.email,
-    subject: `Twój bilet: ${event?.film ?? "seans"} (${reservation.code})`,
-    body: [
-      `Cześć ${reservation.customerName},`,
-      `${event?.film ?? ""}, ${when}, ${event?.hall ?? ""}.`,
-      `${seatLabel(reservation.seatId)}. Kod biletu: ${reservation.code}.`,
-    ].join("\n"),
-  });
+  const mail = buildTicketMail(reservation, event);
+  await sendMail({ idempotencyKey: job._id, to: reservation.email, ...mail });
 }
+
+// ---- Punkty (karta A) --------------------------------------------------------
+
+/**
+ * Zanim powtórzymy operację na punktach, sprawdzamy w Voucherify, czy nasz zapis już tam jest.
+ * Pytamy tylko przy ponowieniu i tylko gdy żądanie mogło wyjść, żeby nie marnować limitu.
+ */
+async function alreadyApplied(job: JobDoc, email: string, marker: string): Promise<boolean> {
+  if (job.deliveryCount <= 1 && !job.issuedAt) return false;
+  const applied = await markerApplied(email, marker);
+  if (applied === null) {
+    throw new AmbiguousStateError(`Nie wiadomo, czy operacja ${marker} przeszła: sprawdź kartę w Voucherify`);
+  }
+  return applied;
+}
+
+/** Znacznik „żądanie wychodzi”: po restarcie w połowie wiemy, że trzeba sprawdzić historię. */
+async function markIssued(job: JobDoc) {
+  const { jobs } = await collections();
+  await jobs.updateOne({ _id: job._id }, { $set: { issuedAt: new Date() } });
+}
+
+async function handleLoyaltyEarn(job: JobDoc) {
+  const { reservationId, email, points } = job.payload;
+  if (!email || !points) throw new PermanentJobError("Zadanie bez adresu albo liczby punktów");
+  const marker = earnMarker(reservationId);
+  if (await alreadyApplied(job, email, marker)) return;
+  await markIssued(job);
+  // Punkty ujemne to korekta: opłacona sesja, za którą punkty zdążyły już wrócić na kartę.
+  if (points > 0) await grantPoints(email, points, marker);
+  else await spendPoints(email, -points, marker);
+}
+
+/**
+ * Kompensacja: punkty zdjęte na próbę płatności, która nie skończyła się zapłatą, wracają
+ * na kartę klienta. Stan próby w bazie mówi, czy jest co zwracać.
+ */
+async function handleLoyaltyRelease(job: JobDoc) {
+  const { reservationId, email, points, attempt: n } = job.payload;
+  if (!email || !points || !n) throw new PermanentJobError("Zadanie bez danych próby płatności");
+  const { reservations } = await collections();
+  const doc = await reservations.findOne({ _id: reservationId });
+  const attempt = doc?.checkouts?.find((a) => a.n === n);
+  if (!doc || !attempt) throw new PermanentJobError(`Brak próby ${n} rezerwacji ${reservationId}`);
+  // Bilet opłacony tą próbą albo punkty już wróciły: nie ma nic do roboty.
+  if (attempt.pointsState === "consumed" || attempt.pointsState === "released") return;
+
+  if (attempt.pointsState === "pending") {
+    // Nie wiemy, czy punkty w ogóle zeszły (timeout przy zdejmowaniu): sprawdzamy w Voucherify.
+    const spent = await markerApplied(email, spendMarker(reservationId, n));
+    if (spent === null) {
+      throw new AmbiguousStateError(`Nie wiadomo, czy punkty zeszły z karty (${reservationId}, próba ${n})`);
+    }
+    if (!spent) {
+      await setAttemptPointsState(reservationId, n, "failed");
+      return;
+    }
+  }
+
+  const marker = releaseMarker(reservationId, n);
+  if (!(await alreadyApplied(job, email, marker))) {
+    await markIssued(job);
+    await grantPoints(email, points, marker);
+  }
+  await setAttemptPointsState(reservationId, n, "released");
+}
+
+const handlers: Record<JobDoc["topic"], (job: JobDoc) => Promise<void>> = {
+  "ticket-email": handleTicketEmail,
+  "loyalty-earn": handleLoyaltyEarn,
+  "loyalty-release": handleLoyaltyRelease,
+};
 
 async function processJob(job: JobDoc): Promise<"done" | "retry" | "dead"> {
   const { jobs } = await collections();
@@ -85,7 +159,7 @@ async function processJob(job: JobDoc): Promise<"done" | "retry" | "dead"> {
     return "dead";
   }
   try {
-    await handleTicketEmail(job);
+    await handlers[job.topic](job);
     // ack dopiero po wykonanej pracy
     await jobs.updateOne(
       { _id: job._id, status: "processing" },
@@ -93,7 +167,7 @@ async function processJob(job: JobDoc): Promise<"done" | "retry" | "dead"> {
     );
     return "done";
   } catch (err) {
-    if (err instanceof PermanentJobError) {
+    if (err instanceof PermanentJobError || err instanceof MailRejectedError || err instanceof AmbiguousStateError) {
       await deadLetter(job, err.message);
       return "dead";
     }
@@ -127,20 +201,26 @@ async function processJob(job: JobDoc): Promise<"done" | "retry" | "dead"> {
 
 export async function runWorkerTick() {
   const swept = await sweepExpired();
+  // Punkty zdjęte na płatność, która nigdy nie doszła, muszą wrócić na kartę klienta.
+  const released = await releaseAbandonedPoints().catch((err) => {
+    console.error("[worker] nie udało się zlecić zwrotu punktów", err instanceof Error ? err.message : err);
+    return 0;
+  });
+
+  // Bierzemy tylko zadania dla zależności, które odpowiadają: zalana usługa nie blokuje drugiej.
+  const topics = (Object.keys(handlers) as JobDoc["topic"][]).filter((t) => breakerFor(t).canRequest());
   const outcome = { done: 0, retry: 0, dead: 0 };
-  // Gdy bezpiecznik jest otwarty, nie pobieramy zadań mailowych wcale.
-  if (mailBreaker.canRequest()) {
-    const claimed: JobDoc[] = [];
-    for (let i = 0; i < BATCH; i++) {
-      const job = await claimJob();
-      if (!job) break;
-      claimed.push(job);
-      if (!mailBreaker.canRequest()) break;
-    }
-    const results = await Promise.all(claimed.map(processJob));
-    for (const r of results) outcome[r]++;
+  const claimed: JobDoc[] = [];
+  for (let i = 0; i < BATCH && topics.length; i++) {
+    const open = topics.filter((t) => breakerFor(t).canRequest());
+    if (!open.length) break;
+    const job = await claimJob(open);
+    if (!job) break;
+    claimed.push(job);
   }
-  return { swept, ...outcome };
+  const results = await Promise.all(claimed.map(processJob));
+  for (const r of results) outcome[r]++;
+  return { swept, releasedPoints: released, ...outcome };
 }
 
 const g = globalThis as typeof globalThis & { __kinoWorker?: { timer: ReturnType<typeof setInterval> } };

@@ -1,6 +1,7 @@
 import { route, json, inFlightCount } from "@/server/http";
 import { pools } from "@/server/bulkhead";
-import { mailBreaker } from "@/server/mailer";
+import { mailBreaker, mailProvider } from "@/server/mailer";
+import { budgetSnapshot, loyaltyBreaker, loyaltyConfigured } from "@/server/voucherify";
 import { paymentsConfigured, stripeBreaker } from "@/server/stripe";
 import { queueStats } from "@/server/worker";
 import { config } from "@/server/config";
@@ -13,6 +14,9 @@ export const GET = route({ pool: "read" }, async () =>
     inFlight: inFlightCount(),
     pools: [pools.read.stats(), pools.write.stats()],
     mailer: mailBreaker.snapshot(),
+    mail: { provider: mailProvider() },
+    // Voucherify: Sandbox przyjmuje 100 wywołań na godzinę, więc widać zużycie budżetu.
+    loyalty: { configured: loyaltyConfigured(), breaker: loyaltyBreaker.snapshot(), budget: await budgetSnapshot() },
     payments: { configured: paymentsConfigured(), breaker: stripeBreaker.snapshot() },
     queue: await queueStats(),
     rateLimit: config.rateLimit,

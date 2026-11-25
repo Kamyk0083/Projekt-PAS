@@ -13,6 +13,8 @@ type Status = {
   inFlight: number;
   pools: { name: string; active: number; queued: number; maxConcurrent: number }[];
   mailer: Breaker;
+  mail: { provider: "resend" | "simulated" };
+  loyalty: { configured: boolean; breaker: Breaker; budget: { capacity: number; remaining: number } };
   payments: { configured: boolean; breaker: Breaker };
   queue: {
     pending: number;
@@ -29,6 +31,12 @@ const BREAKER_TEXT = {
   CLOSED: "Działa. Zadania z kolejki przechodzą normalnie.",
   OPEN: "Wstrzymany. Dostawca maili nie odpowiada, więc go nie wołamy i czekamy.",
   HALF_OPEN: "Próba. Puszczamy jedno zapytanie, żeby sprawdzić, czy dostawca wrócił.",
+};
+
+const LOYALTY_TEXT = {
+  CLOSED: "Działa. Salda i operacje na punktach idą do Voucherify normalnie.",
+  OPEN: "Wstrzymany. Voucherify nie odpowiada, więc płatność punktami odmawia od razu (503), a zakup za pełną cenę kartą działa dalej.",
+  HALF_OPEN: "Próba. Puszczamy jedno wywołanie, żeby sprawdzić, czy Voucherify wrócił.",
 };
 
 const STRIPE_TEXT = {
@@ -68,7 +76,7 @@ export function SystemStatus() {
         <h1>Stan systemu</h1>
         <p>
           Jak kasa radzi sobie z awariami: praca w tle przez kolejkę, bezpieczniki zależności zewnętrznych (Stripe i
-          maile), pule zapytań i limit żądań. Dostawca maili jest symulowany: nic nie trafia do prawdziwych skrzynek. Dane odświeżają się same.
+          maile, punkty), pule zapytań i limit żądań. Dane odświeżają się same.
         </p>
         {offline && (
           <p className={styles.offline} role="status">
@@ -98,11 +106,31 @@ export function SystemStatus() {
           </section>
 
           <section className={styles.breaker} data-state={status.mailer.state}>
-            <h2>Dostawca maili (symulowany)</h2>
+            <h2>Poczta ({status.mail.provider === "resend" ? "Resend, tryb testowy" : "symulowana"})</h2>
             <p className={`${styles.state} mono`}>{status.mailer.state}</p>
             <p>{BREAKER_TEXT[status.mailer.state]}</p>
             <p className={styles.small}>
               Ostatnie wywołania: {status.mailer.recentRequests}, w tym błędów: {status.mailer.recentFailures}.
+              {status.mail.provider === "resend"
+                ? " Bez własnej domeny Resend doręcza tylko na adres właściciela konta i adresy testowe."
+                : " Nic nie trafia do prawdziwych skrzynek."}
+            </p>
+          </section>
+
+          <section className={styles.breaker} data-state={status.loyalty.configured ? status.loyalty.breaker.state : "OPEN"}>
+            <h2>Punkty ({status.loyalty.configured ? "Voucherify, Sandbox" : "symulowane"})</h2>
+            <p className={`${styles.state} mono`}>
+              {status.loyalty.configured ? status.loyalty.breaker.state : "BRAK KLUCZY"}
+            </p>
+            <p>
+              {status.loyalty.configured
+                ? LOYALTY_TEXT[status.loyalty.breaker.state]
+                : "Serwer nie ma kluczy Voucherify, więc punkty prowadzi dostawca symulowany w bazie. Reguły i ekrany działają tak samo."}
+            </p>
+            <p className={styles.small}>
+              Budżet wywołań: {status.loyalty.budget.remaining} z {status.loyalty.budget.capacity} na godzinę (Sandbox
+              przyjmuje 100). Ostatnie wywołania: {status.loyalty.breaker.recentRequests}, w tym błędów:{" "}
+              {status.loyalty.breaker.recentFailures}.
             </p>
           </section>
 
