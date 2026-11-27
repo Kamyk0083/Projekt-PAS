@@ -2,7 +2,7 @@
   "name": "kino-pasaz",
   "version": "1.0.0",
   "private": true,
-  "description": "Kasa biletowa kina: rezerwacja fotela na określony czas i płatność Stripe Checkout (Projekt PAS S01, etapy I i II).",
+  "description": "Kasa biletowa kina: rezerwacja fotela, płatność Stripe i punktami, lista oczekujących (Projekt PAS S01, etapy I–IV).",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

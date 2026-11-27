@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { collections, isDuplicateKey, type JobDoc } from "./db";
 import { CircuitOpenError } from "./circuitBreaker";
 import { mailBreaker, MailRejectedError, sendMail } from "./mailer";
@@ -6,6 +7,8 @@ import { releaseAbandonedPoints, setAttemptPointsState } from "./payments";
 import { isPaid, sweepExpired } from "./reservations";
 import { buildTicketMail } from "./ticketMail";
 import { loyaltyBreaker } from "./voucherify";
+import { advanceAllWaitlists } from "./waitlist";
+import { deliverOfferMail } from "./waitlistMail";
 
 // Praca w tle (E06). Kolejka to kolekcja `jobs` (zasilana przez transactional outbox przy zakupie).
 // - receive: atomowe przejęcie zadania z "visibility timeout" (zadanie ukryte, nie usunięte),
@@ -32,7 +35,8 @@ function backoffMs(deliveryCount: number) {
 }
 
 // Zadania mailowe i punktowe mają osobne bezpieczniki: awaria Voucherify nie wstrzymuje maili.
-const breakerFor = (topic: JobDoc["topic"]) => (topic === "ticket-email" ? mailBreaker : loyaltyBreaker);
+const breakerFor = (topic: JobDoc["topic"]) =>
+  topic === "ticket-email" || topic === "waitlist-offer" ? mailBreaker : loyaltyBreaker;
 
 async function claimJob(topics: JobDoc["topic"][]): Promise<JobDoc | null> {
   const { jobs } = await collections();
@@ -146,10 +150,18 @@ async function handleLoyaltyRelease(job: JobDoc) {
   await setAttemptPointsState(reservationId, n, "released");
 }
 
+// ---- Lista oczekujących (etap IV, karta C) -------------------------------------
+
+async function handleWaitlistOffer(job: JobDoc) {
+  // "stale": oferta już nieaktualna (kupione, wypisany, czas minął). To nie błąd: ack bez maila.
+  await deliverOfferMail(job.payload.reservationId, job._id);
+}
+
 const handlers: Record<JobDoc["topic"], (job: JobDoc) => Promise<void>> = {
   "ticket-email": handleTicketEmail,
   "loyalty-earn": handleLoyaltyEarn,
   "loyalty-release": handleLoyaltyRelease,
+  "waitlist-offer": handleWaitlistOffer,
 };
 
 async function processJob(job: JobDoc): Promise<"done" | "retry" | "dead"> {
@@ -207,6 +219,13 @@ export async function runWorkerTick() {
     return 0;
   });
 
+  // Lista oczekujących: zwolnione fotele dla kolejnych osób i zamknięcie skończonych ofert.
+  // Zwykle robią to żądania dotyczące seansu; tu jest siatka bezpieczeństwa (worker, cron).
+  const offered = await advanceAllWaitlists().catch((err) => {
+    console.error("[worker] nie udało się przesunąć list oczekujących", err instanceof Error ? err.message : err);
+    return 0;
+  });
+
   // Bierzemy tylko zadania dla zależności, które odpowiadają: zalana usługa nie blokuje drugiej.
   const topics = (Object.keys(handlers) as JobDoc["topic"][]).filter((t) => breakerFor(t).canRequest());
   const outcome = { done: 0, retry: 0, dead: 0 };
@@ -220,7 +239,25 @@ export async function runWorkerTick() {
   }
   const results = await Promise.all(claimed.map(processJob));
   for (const r of results) outcome[r]++;
-  return { swept, releasedPoints: released, ...outcome };
+  return { swept, releasedPoints: released, waitlistOffers: offered, ...outcome };
+}
+
+// Na serverless nie ma stale działającego workera, a Vercel Cron na darmowym planie budzi nas
+// raz dziennie. Dlatego żądania, które coś zmieniły (nowa oferta z listy, odbity mail) albo są
+// regularnie odpytywane, zlecają przebieg workera po wysłaniu odpowiedzi (`after`).
+// Odpytywanie zleca go najwyżej raz na `throttleMs` w danej instancji.
+const kicks = (globalThis as typeof globalThis & { __kinoKick?: { at: number } }).__kinoKick ?? { at: 0 };
+(globalThis as typeof globalThis & { __kinoKick?: { at: number } }).__kinoKick = kicks;
+
+export function kickWorker(throttleMs = 0) {
+  const now = Date.now();
+  if (throttleMs > 0 && now - kicks.at < throttleMs) return;
+  kicks.at = now;
+  try {
+    after(() => runWorkerTick().catch(() => undefined));
+  } catch {
+    /* poza kontekstem żądania (np. testy): zadanie obsłuży zwykły worker */
+  }
 }
 
 const g = globalThis as typeof globalThis & { __kinoWorker?: { timer: ReturnType<typeof setInterval> } };

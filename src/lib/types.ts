@@ -21,6 +21,29 @@ export type CinemaEvent = {
 export type EventDetails = {
   event: CinemaEvent;
   takenSeats: string[];
+  // Etap IV: każde miejsce kupione albo z ważną rezerwacją (także ofertą dla osoby z listy).
+  soldOut: boolean;
+};
+
+// Etap IV: lista oczekujących.
+export type WaitlistStatus = "waiting" | "offered" | "done" | "missed" | "left";
+
+// POST /api/events/:id/waitlist
+export type WaitlistJoin = { waitlistId: string; position: number };
+
+// GET /api/waitlist/:id. `position` liczy się od 1 dla osób czekających; 0 znaczy, że osoba
+// nie stoi już w kolejce (ma ofertę, kupiła bilet, przegapiła ją albo się wypisała).
+export type WaitlistView = {
+  waitlistId: string;
+  eventId: string;
+  status: WaitlistStatus;
+  position: number;
+  reservationId?: string; // offered, done i missed: rezerwacja z oferty
+  offerExpiresAt?: string; // offered: do kiedy miejsce czeka (expiresAt rezerwacji)
+  seatId?: string;
+  missedReason?: "timeout" | "undelivered";
+  emailMasked: string;
+  serverTime: string;
 };
 
 export type ReservationStatus = "held" | "paid" | "expired";
@@ -50,6 +73,7 @@ export type ReservationView = {
   purchasedAt: string | null; // chwila opłacenia
   refund: "pending" | "succeeded" | null; // płatność po czasie, gdy fotel miał już innego właściciela
   emailStatus: EmailStatus;
+  fromWaitlist: boolean; // etap IV: miejsce z listy oczekujących
   event: CinemaEvent;
   serverTime: string; // do korekty przesunięcia zegara klienta
 };

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { collections, isDuplicateKey } from "./db";
 import { config } from "./config";
 import { CircuitBreaker } from "./circuitBreaker";
@@ -12,7 +13,18 @@ import { CircuitBreaker } from "./circuitBreaker";
 // z dowolną etykietą po "+"). Każde inne odrzucenie jest trwałe: takiego zadania nie ma
 // sensu ponawiać, więc idzie prosto do DLQ i widać je na /status i na stronie biletu.
 
-export type Mail = { idempotencyKey: string; to: string; subject: string; text: string; html?: string };
+// tags: etykiety Resenda (tylko identyfikatory, bez danych osobowych). Wracają w webhooku,
+// więc zdarzenie "mail odbity" da się przypisać do oferty z listy oczekujących (etap IV).
+export type Mail = {
+  idempotencyKey: string;
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
+  tags?: { name: string; value: string }[];
+};
+
+export type SentMail = { providerId?: string; replayed: boolean };
 
 /** Awaria chwilowa: warto ponowić (liczy się do bezpiecznika). */
 export class MailerUnavailableError extends Error {}
@@ -63,7 +75,7 @@ async function recordSent(mail: Mail, providerId?: string) {
 
 const PERMANENT_STATUS = new Set([400, 401, 403, 404, 422]);
 
-async function resendSend(mail: Mail): Promise<void> {
+async function resendSend(mail: Mail): Promise<string | undefined> {
   const { apiKey, from, timeoutMs } = config.mail;
   let res: Response;
   try {
@@ -81,6 +93,7 @@ async function resendSend(mail: Mail): Promise<void> {
         subject: mail.subject,
         text: mail.text,
         ...(mail.html ? { html: mail.html } : {}),
+        ...(mail.tags?.length ? { tags: mail.tags } : {}),
       }),
       signal: AbortSignal.timeout(timeoutMs),
       cache: "no-store",
@@ -92,7 +105,7 @@ async function resendSend(mail: Mail): Promise<void> {
   if (res.ok) {
     const body = (await res.json().catch(() => null)) as { id?: string } | null;
     await recordSent(mail, body?.id);
-    return;
+    return body?.id;
   }
 
   const body = (await res.json().catch(() => null)) as { message?: string; name?: string } | null;
@@ -104,7 +117,7 @@ async function resendSend(mail: Mail): Promise<void> {
 
 // ---- Dostawca symulowany ----------------------------------------------------
 
-async function simulatedSend(mail: Mail): Promise<void> {
+async function simulatedSend(mail: Mail): Promise<string> {
   const { failureRate, latencyMs } = config.mailer;
   // Rozrzut opóźnienia: czasem dostawca odpowiada dużo wolniej niż zwykle.
   const jitter = Math.random() < 0.05 ? latencyMs * 8 : Math.random() * latencyMs;
@@ -112,22 +125,36 @@ async function simulatedSend(mail: Mail): Promise<void> {
   if (Math.random() < failureRate) throw new MailerUnavailableError("SMTP 421: service not available");
   // Jak w Resendzie: adres, który nie istnieje, odrzuca wiadomość na stałe.
   if (/^bounced(\+|@)/.test(mail.to)) throw new MailRejectedError("Odbiorca nie istnieje (symulacja).");
-  await recordSent(mail);
+  // ID jak u Resenda, żeby zdarzenia webhooka dało się odtworzyć także bez konta.
+  const providerId = `sim_${randomUUID()}`;
+  await recordSent(mail, providerId);
+  return providerId;
+}
+
+/**
+ * Mail z tym kluczem już wyszedł (nasz lokalny outbox). Ponowienie zadania po udanej wysyłce
+ * nie wysyła go drugi raz, nawet gdy treść by się różniła (Resend odrzuciłby wtedy klucz: 409).
+ */
+export async function sentMail(idempotencyKey: string) {
+  const { mails } = await collections();
+  return mails.findOne({ _id: idempotencyKey });
 }
 
 // Każde wywołanie: timeout (nie czekamy dłużej niż ustawiony limit) + bezpiecznik.
-export async function sendMail(mail: Mail): Promise<void> {
-  const rejected = await mailBreaker.fire<MailRejectedError | null>(async () => {
+export async function sendMail(mail: Mail): Promise<SentMail> {
+  const previous = await sentMail(mail.idempotencyKey);
+  if (previous) return { providerId: previous.providerId, replayed: true };
+  const outcome = await mailBreaker.fire<{ rejected: MailRejectedError } | { providerId?: string }>(async () => {
     try {
-      if (config.mail.provider === "resend") await resendSend(mail);
-      else await simulatedSend(mail);
-      return null;
+      const providerId = config.mail.provider === "resend" ? await resendSend(mail) : await simulatedSend(mail);
+      return { providerId };
     } catch (err) {
       // Odmowa trwała to nie awaria zależności: nie wolno jej otwierać bezpiecznika,
       // bo jeden zły adres zablokowałby wysyłkę wszystkim pozostałym.
-      if (err instanceof MailRejectedError) return err;
+      if (err instanceof MailRejectedError) return { rejected: err };
       throw err;
     }
   });
-  if (rejected) throw rejected;
+  if ("rejected" in outcome) throw outcome.rejected;
+  return { providerId: outcome.providerId, replayed: false };
 }

@@ -5,6 +5,8 @@ import { budgetSnapshot, loyaltyBreaker, loyaltyConfigured } from "@/server/vouc
 import { paymentsConfigured, stripeBreaker } from "@/server/stripe";
 import { queueStats } from "@/server/worker";
 import { config } from "@/server/config";
+import { resendWebhookConfigured } from "@/server/resendWebhook";
+import { waitlistStats } from "@/server/waitlist";
 
 // Podgląd stanu mechanizmów odporności (bezpiecznik, kolejka, DLQ, pule).
 export const GET = route({ pool: "read" }, async () =>
@@ -14,7 +16,9 @@ export const GET = route({ pool: "read" }, async () =>
     inFlight: inFlightCount(),
     pools: [pools.read.stats(), pools.write.stats()],
     mailer: mailBreaker.snapshot(),
-    mail: { provider: mailProvider() },
+    // Etap IV: czy przyjmujemy zdarzenia Resenda (odbite maile) i ile osób czeka na listach.
+    mail: { provider: mailProvider(), webhookConfigured: resendWebhookConfigured() },
+    waitlist: await waitlistStats(),
     // Voucherify: Sandbox przyjmuje 100 wywołań na godzinę, więc widać zużycie budżetu.
     loyalty: { configured: loyaltyConfigured(), breaker: loyaltyBreaker.snapshot(), budget: await budgetSnapshot() },
     payments: { configured: paymentsConfigured(), breaker: stripeBreaker.snapshot() },

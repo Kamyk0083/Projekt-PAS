@@ -130,7 +130,33 @@ const SCHEDULE: [FilmId, number, 1 | 2, number, number, string?][] = [
   ["cien-nad-wisla", 3, 2, 20, 30],
 ];
 
+// Etap IV: wydarzenie testowe z kontraktu, z dokładnie dwoma miejscami. Wystarczy zarezerwować
+// oba, żeby było wyprzedane i dało się sprawdzić listę oczekujących.
+export const WAITLIST_TEST_ID = "waitlist-test";
+
+function waitlistTestEvent(): EventDoc {
+  return {
+    _id: WAITLIST_TEST_ID,
+    film: "Pokaz testowy: lista oczekujących",
+    title: "Pokaz testowy: lista oczekujących",
+    genre: "Pokaz testowy",
+    durationMin: 30,
+    ageRating: "b.o.",
+    language: "PL",
+    posterSeed: "kino-waitlist-test",
+    synopsis: "Sala kameralna na dwa fotele. Zarezerwuj oba, a trzecia osoba zapisze się na listę oczekujących.",
+    startsAt: warsawDate(1, 23, 30),
+    hall: "Sala kameralna",
+    layout: { rows: 1, seatsPerRow: 2, aisleAfter: null },
+    price: PRICE,
+  };
+}
+
 export function seedData(): EventDoc[] {
+  return [...scheduled(), waitlistTestEvent()];
+}
+
+function scheduled(): EventDoc[] {
   return SCHEDULE.map(([filmId, day, hall, hour, minute, fixedId]) => {
     const { price, ...film }: Film = FILMS[filmId];
     return {

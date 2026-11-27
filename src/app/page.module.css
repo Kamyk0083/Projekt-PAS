@@ -405,6 +405,16 @@
   text-decoration: line-through;
 }
 
+/* Etap IV: wyprzedany seans prowadzi do listy oczekujących, więc jest klikalny, ale wyciszony. */
+.timeSoldOut {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+}
+
+.timeSoldOut .clock {
+  color: var(--ink-2);
+}
+
 @media (min-width: 760px) {
   .film {
     grid-template-columns: 180px minmax(0, 1fr);

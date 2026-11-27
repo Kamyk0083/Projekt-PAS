@@ -24,6 +24,14 @@ export const loyaltyEarnJob = (reservationId: string, email: string, points: num
   job(`loyalty-earn:${reservationId}`, "loyalty-earn", { reservationId, email, points }, now);
 
 /**
+ * Etap IV, kontrakt wewnętrzny B -> C: osoba z listy oczekujących dostała miejsce i trzeba
+ * wysłać jej mail z linkiem do zapłaty. Jedno zadanie na ofertę (rezerwację), wstawiane w tej
+ * samej transakcji co oferta (transactional outbox), więc oferta bez maila nie powstanie.
+ */
+export const waitlistOfferJob = (reservationId: string, waitlistId: string, now: Date): JobDoc =>
+  job(`waitlist-offer:${reservationId}`, "waitlist-offer", { reservationId, waitlistId }, now);
+
+/**
  * Zwrot punktów zdjętych na próbę płatności, która nie skończyła się zapłatą (kompensacja).
  * Jedno zadanie na próbę: `attempt` jest częścią klucza.
  */

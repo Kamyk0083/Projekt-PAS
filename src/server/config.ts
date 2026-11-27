@@ -75,6 +75,21 @@ export const config = {
       cacheTtlMs: num("LOYALTY_CACHE_TTL_SECONDS", 45) * 1000,
     };
   },
+  // Lista oczekujących (etap IV). Miejsce dla osoby z listy to zwykła rezerwacja, więc czeka
+  // tyle samo co ona (reservationTtlMs). Tutaj tylko ograniczenia samej kolejki.
+  get waitlist() {
+    return {
+      // Najwięcej aktywnych wpisów na jeden seans: zalew fałszywych adresów nie rozdmucha kolejki.
+      maxPerEvent: num("WAITLIST_MAX_PER_EVENT", 300),
+      // Ile ofert najwyżej rozdajemy w jednym przebiegu (ogranicza pracę jednego żądania).
+      maxOffersPerRun: num("WAITLIST_MAX_OFFERS_PER_RUN", 10),
+    };
+  },
+  // Webhook Resenda (etap IV): zdarzenia o losie wysłanego maila, podpisane przez Svix.
+  // Sekret whsec_... z panelu Resend > Webhooks, tylko w env serwera.
+  get resendWebhookSecret() {
+    return process.env.RESEND_WEBHOOK_SECRET || "";
+  },
   get workerEnabled() {
     return bool("WORKER_ENABLED", true);
   },

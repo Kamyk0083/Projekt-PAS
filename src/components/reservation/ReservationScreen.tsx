@@ -42,6 +42,9 @@ export function ReservationScreen({ initial, returned }: { initial: ReservationV
   const [error, setError] = useState<string | null>(null);
   const payingRef = useRef(false);
   payingRef.current = paying;
+  // Licznik doszedł do zera: zanim ogłosimy koniec, pytamy serwer (etap IV: termin oferty z listy
+  // oczekujących mógł zostać przesunięty przy wysyłce maila, a zegar klienta bywa niedokładny).
+  const checkingRef = useRef(false);
 
   // Karta B: punkty do wydania na ten bilet. Saldo z serwera przychodzi z cache'a,
   // więc po wejściu na ekran prosimy o świeże (osobny endpoint, nie ten odpytywany w pętli).
@@ -59,7 +62,17 @@ export function ReservationScreen({ initial, returned }: { initial: ReservationV
     const tick = () => {
       const left = expiresAt - (Date.now() + offsetRef.current);
       setRemaining(left);
-      if (left <= 0 && !payingRef.current) setPhase("expired");
+      if (left > 0 || payingRef.current || checkingRef.current) return;
+      checkingRef.current = true;
+      refresh()
+        .then((next) => {
+          const stillHeld = next.status === "held" && Date.parse(next.expiresAt) > Date.parse(next.serverTime);
+          if (!stillHeld) setPhase("expired");
+        })
+        .catch(() => setPhase("expired"))
+        .finally(() => {
+          checkingRef.current = false;
+        });
     };
     tick();
     const id = setInterval(tick, 250);
@@ -301,6 +314,13 @@ function Held({
       </section>
 
       <section className={styles.side} aria-label="Szczegóły rezerwacji">
+        {view.fromWaitlist && (
+          <p className={styles.notice} role="status">
+            <Info size={18} weight="bold" aria-hidden />
+            To miejsce zwolniło się dla Ciebie z listy oczekujących. Jeśli nie zapłacisz na czas, dostanie je następna
+            osoba z kolejki.
+          </p>
+        )}
         {cancelled && !error && (
           <p className={styles.notice} role="status">
             <Info size={18} weight="bold" aria-hidden />

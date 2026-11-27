@@ -1,6 +1,8 @@
-# Kino Pasaż: kasa biletowa (Projekt PAS S01, etapy I–III, wariant Kino)
+# Kino Pasaż: kasa biletowa (Projekt PAS S01, etapy I–IV, wariant Kino)
 
 Klient wybiera seans i wolny fotel, rezerwuje go (fotel jest trzymany przez 15 minut i dla innych wygląda na zajęty), może część ceny zapłacić punktami z konta lojalnościowego, resztę dopłaca kartą na stronie Stripe Checkout i po powrocie widzi bilet z kodem oraz podsumowaniem (ile kartą, ile punktami, ile punktów zebrał). To samo podsumowanie dostaje mailem. Jeśli przerwie płatność, wraca do sklepu i może zapłacić jeszcze raz, dopóki rezerwacja jest ważna. Jeśli nie zdąży, rezerwacja przepada, fotel wraca do puli, a punkty wracają na konto.
+
+Od etapu IV wyprzedany seans ma listę oczekujących: klient zapisuje się e-mailem i widzi swoje miejsce w kolejce. Gdy czyjaś rezerwacja wygaśnie, fotel dostaje pierwsza osoba z kolejki (zwykła rezerwacja na 15 minut) i mail z linkiem do zapłaty. Gdy nie zapłaci albo mail do niej nie dojdzie, fotel przechodzi na następną osobę.
 
 Stos: Next.js 16 (App Router, route handlers), MongoDB (transakcje, replica set), Stripe Checkout, Voucherify (punkty) i Resend (maile) — wszystkie trzy w trybie testowym, Motion, Phosphor Icons, Vitest.
 
@@ -82,6 +84,20 @@ Zmiany w etapie III:
 | C | `GET /api/reservations/:id` | dodatkowo `pointsUsed`, `pointsEarned` (po opłaceniu), `pointsValue` i `cardAmount` do podsumowania oraz `loyalty: { balance, maxPoints }` (saldo z cache'a serwera, bez wywołania Voucherify) |
 | B | `GET /api/reservations/:id/loyalty` (wewnętrzny) | `{ balance, maxPoints, spendable }`: świeże saldo dla koszyka, bez pokazywania e-maila w przeglądarce |
 
+Zmiany w etapie IV:
+
+| Karta | Endpoint | Zwraca |
+| --- | --- | --- |
+| A | `GET /api/events` | zawiera wydarzenie testowe `waitlist-test` z dokładnie dwoma miejscami (Sala kameralna, 1 × 2) |
+| A | `GET /api/events/:id` | dodatkowo `soldOut`: `true`, gdy każde miejsce jest kupione albo ma ważną rezerwację (także ofertę z listy) |
+| A | `POST /api/events/:id/waitlist` `{ email, customerName }` (nowy) | `201 { waitlistId, position }`, `position` od 1. Ten sam e-mail drugi raz: `200` i ten sam wpis. Odmowy: `409 NOT_SOLD_OUT` (są wolne miejsca), `400`, `404`, `409 EVENT_STARTED`, `409 WAITLIST_FULL`, `429` |
+| A/B | `GET /api/waitlist/:id` (nowy) | `{ status, position, reservationId?, offerExpiresAt? }`, `status`: `waiting`, `offered`, `done`, `missed`, `left`. `position` od 1 dla czekających, `0` gdy osoba już nie czeka. Dodatkowo `seatId`, `missedReason` (`timeout` albo `undelivered`), `emailMasked`, `serverTime` |
+| A | `DELETE /api/waitlist/:id` (nowy) | `200 { waitlistId, status: "left" }`, także z oferty (fotel od razu idzie dalej). Ponowienie zwraca to samo, `404` brak wpisu, `409 ALREADY_PURCHASED` po zakupie |
+| C | `POST /api/webhooks/resend` (nowy) | `200 { received: true }`, `400` przy złym podpisie Svix albo starym znaczniku czasu |
+| C | `GET /api/reservations/:id` | dodatkowo `fromWaitlist`; `emailStatus` `failed`, gdy Resend zgłosi odbity mail z biletem |
+
+Miejsce dla osoby z listy to zwykła rezerwacja z etapu I (`reservationId`, `expiresAt`, `amount`), więc płaci się za nią tak samo, także punktami. `offerExpiresAt` to `expiresAt` tej rezerwacji.
+
 Błędy mają postać `{ error, errorCode, retryable }` (celowo nie `code`, bo `code` to kod biletu): `400 VALIDATION`, `404 NOT_FOUND`, `409 SEAT_TAKEN`, `410 RESERVATION_EXPIRED`, `422 IDEMPOTENCY_MISMATCH`, `429 RATE_LIMITED` i `503 OVERLOADED / DEPENDENCY_UNAVAILABLE` (oba z `Retry-After`).
 
 `seatId` ma format `"F7"` (rząd A–H, miejsce 1–10). Dane przykładowe: 3 seanse w 2 salach po 8×10 foteli.
@@ -127,6 +143,25 @@ Etap III dokłada do tego:
 
 Między ekranami przekazujemy tylko identyfikatory w adresie (`eventId`, `seatId` w `?fotel=`, `reservationId`). Ekran rezerwacji pobiera resztę z `GET /api/reservations/:id` (`ReservationView` w `src/lib/types.ts`), w tym `serverTime`, żeby licznik nie zależał od zegara klienta.
 
+**Etap IV: lista oczekujących**
+
+| Adres | Karta | Co robi |
+| --- | --- | --- |
+| `/` | A | wyprzedany seans nie jest wyszarzony, tylko prowadzi do listy („Brak miejsc · lista oczekujących”) |
+| `/seanse/:eventId` | A | na wyprzedanym seansie zamiast „Wybierz fotel” karta „Powiadom mnie” → formularz (imię, e-mail) → „Twoje miejsce w kolejce: 2” i „Wypisz mnie”. Odpytuje `GET /api/waitlist/:id` co 4 s |
+| `/seanse/:eventId?kolejka=<waitlistId>` | A | link do własnego miejsca w kolejce (też w `localStorage`, więc powrót na stronę pokazuje stan) |
+| `/seanse/:eventId?kolejka=…` (oferta) | B | „Zwolniło się miejsce dla Ciebie: Rząd A, miejsce 2”, licznik do `offerExpiresAt` i „Zapłać 32 zł” → `/rezerwacja/:reservationId` |
+| `/rezerwacja/:reservationId` | B → C | ten sam ekran płatności co w etapach II–III, z notką „miejsce z listy oczekujących” |
+
+Kontrakt wewnętrzny między kartami (ustalony przez lidera):
+
+- **B → C: „ktoś dostał miejsce”.** Karta B w jednej transakcji zmienia wpis `waiting → offered`, zajmuje fotel, zakłada rezerwację i wstawia zadanie `waitlist-offer:<reservationId>` z `{ reservationId, waitlistId }` do kolejki `jobs` (transactional outbox). Oferta bez zadania maila nie może powstać. Karta C obsługuje zadanie w workerze (`src/server/waitlistMail.ts`).
+- **C → B: „mail nie doszedł”.** Karta C woła `offerUndelivered(reservationId)` z `src/server/waitlist.ts`: przy trwałej odmowie wysyłki (`MailRejectedError`) i przy zdarzeniach `email.bounced` / `email.failed` z webhooka Resenda. Karta B zamyka wtedy tylko bieżącą, nieopłaconą ofertę tej rezerwacji (`missed`, `missedReason: "undelivered"`), zwalnia fotel od razu i proponuje go następnej osobie.
+- **Termin w mailu.** Karta C ustala go raz, przy pierwszej próbie wysyłki (`waitlist.mailDeadline`), i wtedy przedłuża ofertę do pełnych 15 minut od tej chwili. Ponowienie zadania wysyła identyczną treść.
+- **Mail do oferty.** Resend dostaje tagi `kind=waitlist_offer`, `reservation=<id>`, `waitlist=<id>`: same identyfikatory, po których webhook wskazuje ofertę.
+
+Kiedy kolejka się przesuwa. Fotel zwalnia się po cichu (`expiresAt` mija), a Vercel Cron na darmowym planie budzi nas najwyżej raz dziennie. Dlatego kolejka nie czeka na crona, tylko „dogania” stan (`advanceWaitlist`) przy każdym żądaniu dotyczącym seansu: `GET /api/events/:id` (mapę odpytuje każdy oglądający), `POST /api/reservations`, `POST /api/events/:id/waitlist`, `GET /api/waitlist/:id` (odpytuje go strona osoby z listy), `DELETE`, webhook Resenda. Do tego worker w procesie serwera (lokalnie co 3 s) i dzienny cron z `vercel.json` jako siatka bezpieczeństwa. Mail z nowej oferty wychodzi zaraz po odpowiedzi (`after()`), a odpytywanie zleca przebieg workera najwyżej raz na kilka sekund w instancji.
+
 **Model danych (MongoDB)**
 
 | Kolekcja | Klucz | Rola |
@@ -141,6 +176,11 @@ Między ekranami przekazujemy tylko identyfikatory w adresie (`eventId`, `seatId
 | `deadLetters` | `_id` = ID zadania | zadania, które przekroczyły limit prób |
 | `mails` | `_id` = klucz idempotencji (= ID zadania) | ślad wysłanych maili (nasz lokalny outbox, u Resendu `Idempotency-Key`) |
 | `rateBuckets` | `_id` = `scope:ip` | wiadra token bucket z TTL |
+| `waitlist` | `_id` = UUID (`waitlistId`) | etap IV: wpis na liście: seans, e-mail, imię, `seq` (kolejność), `status`, `active` (unikalny indeks `eventId + email` tylko dla aktywnych), bieżąca oferta (`reservationId`, `seatId`, `mailDeadline`, `notifiedAt`, `deliveredAt`, `undeliveredAt`), `missedReason` |
+| `counters` | `_id` = `waitlist:<eventId>` | licznik kolejności na liście seansu (w transakcji z zapisem) |
+| `resendEvents` | `_id` = `svix-id` | obsłużone webhooki Resenda (deduplikacja), TTL 30 dni |
+
+Etap IV dokłada też `reservations.waitlistId` (rezerwacja z oferty), `mails.providerId`, `mails.deliveredAt`, `mails.bouncedAt` i zadanie `waitlist-offer` w `jobs`.
 
 ## Zagrożenia i nasze karty (na podstawie lekcji)
 
@@ -203,6 +243,27 @@ Nowe zagrożenia dotyczą tego, że punkty są pieniądzem, a saldo jest poza na
 - *Wyciek kluczy.* `VOUCHERIFY_*` i `RESEND_API_KEY` tylko w env serwera, poza repo (`.gitignore` na `.env*`), kod obu usług wyłącznie w `src/server`. Bez kluczy wchodzą dostawcy symulowani, więc nikt nie musi wklejać sekretów, żeby uruchomić projekt.
 - *Dane osobowe u zewnętrznych dostawców.* Do Voucherify idzie tylko e-mail (jako identyfikator karty), do Resendu e-mail i treść biletu. Nic więcej: ani imię w logach, ani ID rezerwacji na `/status` (jest jak link do biletu). W interfejsie e-mail jest maskowany, a w komunikatach DLQ identyfikatory wycinamy.
 
+**Etap IV: lista oczekujących i Resend jako zależność zewnętrzna**
+
+- *Wyprzedane, a na sali puste miejsca.* Rezerwacja wygasa bez żadnego zdarzenia, więc nikt się o tym nie dowiadywał. Teraz każde żądanie dotyczące seansu najpierw zamyka skończone oferty i oddaje wolne fotele kolejnym osobom z listy. Poprawność nie zależy od tego, kiedy to się stanie: wygasła blokada jest wolna od razu, a pierwsze żądanie po wygaśnięciu daje fotel kolejce.
+- *Vercel Cron raz dziennie.* Nie opieramy na nim niczego: kolejkę przesuwają żądania (mapa sali, strona osoby z listy, webhook), mail wychodzi przez `after()` zaraz po ofercie. Cron w `vercel.json` (raz dziennie) to tylko siatka bezpieczeństwa.
+- *Przypadkowy klient zgarnia zwolniony fotel przed kolejką.* `POST /api/reservations` przesuwa kolejkę przed rezerwacją, więc wolny fotel jest już ofertą dla pierwszej osoby z listy i obcy dostaje `409 SEAT_TAKEN`. Test: rezerwacja zwolnionego fotela przez kogoś spoza listy.
+- *Dwie instancje (albo dwa odpytania) rozdają ten sam fotel.* Oferta to jedna transakcja: warunkowa zmiana wpisu `waiting → offered` i warunkowy upsert fotela jak w etapie I. Przegrany wyścig dostaje konflikt i bierze następny wpis albo fotel. W jednej instancji przebiegi dla seansu są współdzielone. Test: 10 równoległych przebiegów bez współdzielenia daje jedną ofertę, zgodnie z kolejnością.
+- *Kolejność i miejsce w kolejce.* Numer z licznika w tej samej transakcji co zapis, więc dwa jednoczesne zapisy nie dostaną tego samego numeru, a zwrócone `position` jest dokładne. Test: 8 równoległych zapisów dostaje 1–8.
+- *Podwójny klik „Zapisz mnie”, retry.* Unikalny indeks na aktywny wpis `(eventId, email)`: ponowienie zwraca ten sam `waitlistId` (`200`, `Idempotent-Replayed`). Po wypisaniu albo przegapieniu można zapisać się znowu, na koniec kolejki.
+- *Zalew zapisów (fałszywe adresy, które blokują kolejkę).* Limit żądań na IP (`429`), limit aktywnych wpisów na seans (`WAITLIST_MAX_PER_EVENT`, `409 WAITLIST_FULL`). Adres, który nie istnieje, odbija się i od razu oddaje fotel dalej, zamiast trzymać go 15 minut.
+- *Osoba z listy nie płaci.* Oferta to zwykła rezerwacja z tym samym czasem. Po jej wygaśnięciu wpis przechodzi w `missed` (`timeout`), a fotel dostaje następna osoba.
+- *Mail nie dochodzi.* Trwała odmowa przy wysyłce (zły adres, adres spoza listy testowej Resenda) i zdarzenie `email.bounced` z webhooka zamykają ofertę od razu (`missed`, `undelivered`) i dają fotel następnej osobie. Spóźniony bounce po zapłacie nie odbiera biletu, bo zamykamy tylko bieżącą, nieopłaconą ofertę tej rezerwacji.
+- *Podrobiony webhook Resenda („mail odbity”), żeby komuś odebrać miejsce.* Podpis Svix: HMAC-SHA256 z sekretu `RESEND_WEBHOOK_SECRET` po `svix-id.svix-timestamp.surowe ciało`, porównanie w stałym czasie, znacznik czasu najwyżej 5 minut od teraz (powtórzenie starego żądania). Bez tego `400` i żadnej zmiany. Ciało ponad 256 KB odrzucamy.
+- *Svix ponawia webhook albo przysyła go dwa razy, zdarzenia w dowolnej kolejności.* Rejestr `resendEvents` po `svix-id` i warunki na stan oferty: powtórka nic nie zmienia. Mail obcy (inny projekt na tym samym koncie) jest ignorowany z `200`.
+- *Resend leży albo odpowiada `429` (limit wywołań na sekundę).* Ta sama kolejka co w etapie III: timeout, bezpiecznik `mailer`, retry z backoffem, DLQ. Gdy mail z ofertą nie zdążył wyjść z naszej winy, a czas oferty minął, osoba nie traci miejsca w kolejce: wraca na swoje miejsce i dostaje ofertę jeszcze raz. Inaczej awaria dostawcy „spaliłaby” po kolei całą kolejkę.
+- *Mail dochodzi z opóźnieniem i daje „masz jeszcze 40 sekund”.* Termin w mailu ustalamy przy pierwszej próbie wysyłki i wtedy przedłużamy ofertę do pełnych 15 minut od maila (rezerwacja i fotel w jednej transakcji). Ekran płatności przed ogłoszeniem „wygasła” pyta serwer, czy termin się nie przesunął.
+- *Mail z ofertą wysłany dwa razy.* Klucz idempotencji = ID zadania, honorowany przez Resend i przez nasz outbox `mails` (sprawdzany przed wysyłką). Treść ponowienia jest identyczna, bo termin jest zapisany.
+- *Wypisanie w trakcie oferty.* `DELETE` w każdej chwili. Z oferty: rezerwacja `expired`, fotel wraca od razu i idzie do następnej osoby. Gdy płatność za tę ofertę przyjdzie po czasie, działa etap II: fotel wolny to sprzedaż, zajęty to zwrot pieniędzy i punktów.
+- *Płatność punktami za miejsce z listy.* Oferta jest zwykłą rezerwacją, więc działa cała saga z etapu III. Opłacenie w tej samej transakcji zmienia wpis na `done`.
+- *Seans się zaczął.* Po rozpoczęciu nie rozdajemy ofert i nie przyjmujemy zapisów (`409 EVENT_STARTED`).
+- *Dane osobowe.* `waitlistId` działa jak link (UUID): kto go zna, widzi stan i może się wypisać, ale nie zobaczy adresu (maskowany). Do Resenda idzie e-mail, imię i treść oferty, w tagach tylko identyfikatory. `/status` pokazuje same liczby.
+
 ## Kryteria etapu I: jak je spełniamy
 
 | Kryterium | Zachowanie | Test |
@@ -239,10 +300,23 @@ Skrypt sprawdza zakup bez płatności z etapu I, więc na czas tego testu serwer
 | punkty nie przepadają | wygaśnięcie sesji zwraca punkty; porzucona płatność jest sprzątana po wygaśnięciu sesji; powtórka webhooka nie nalicza drugi raz; kwota niezgodna z rabatem tej próby nie wydaje biletu; zwrot pieniędzy po czasie zwraca też punkty |
 | awaria Voucherify | `503` na saldzie i na płatności punktami, zakup za pełną cenę kartą działa dalej; niepewne odjęcie (timeout) kończy się kompensacją po sprawdzeniu markera, a bez śladu w historii nie zwracamy nic |
 
+## Etap IV: co sprawdzają testy
+
+`tests/waitlist.test.ts` (21 przypadków). Stripe i Voucherify są atrapami, poczta symulowana, a webhook Resenda podpisujemy prawdziwym algorytmem Svix. Upływ 2 minut symulujemy, przesuwając `expiresAt` w bazie.
+
+| Obszar | Co jest sprawdzone |
+| --- | --- |
+| A. zapis | `waitlist-test` ma 2 miejsca; `soldOut` false/true; odmowy 4xx (niewyprzedany, zły e-mail, brak imienia, brak seansu) bez zapisu w bazie; pozycje od 1, ten sam e-mail to ten sam wpis; 8 równoległych zapisów to pozycje 1–8; wypisanie, przesunięcie kolejki, powtórny DELETE, ponowny zapis na koniec |
+| B. oferta | po wygaśnięciu rezerwacji pierwsza osoba ma zwykłą rezerwację na 2 minuty, druga czeka; obcy nie przejmie fotela; 10 równoległych przebiegów daje jedną ofertę; brak zapłaty to `missed` i fotel dla następnej osoby; płatność punktami za ofertę (sesja na 22 zł, `done`, bilet); wypisanie z oferty oddaje fotel od razu; oferta bez wysłanego maila wraca do tej samej osoby |
+| C. mail i webhook | mail ma nazwę wydarzenia, miejsce, link do zapłaty i godzinę; spóźniony mail daje pełne 2 minuty od wysyłki; adres odrzucony przy wysyłce to `undelivered` i mail do następnej osoby; podpisany `email.bounced` (z tagami i bez) zamyka ofertę, powtórka nic nie zmienia; podróbka, stary znacznik czasu i brak podpisu to `400`; bounce po zapłacie nie odbiera biletu; `email.delivered` zapisuje doręczenie |
+
+Ten sam scenariusz po HTTP na działającym serwerze (krótki TTL, worker w procesie): zapis, wygaśnięcie, oferty, odbicie przy wysyłce, wypisanie, podpisany i podrobiony webhook, brak zapłaty.
+
 ### Wdrożenie: warunek wstępny
 
 - **Trwała baza jest obowiązkowa.** Baza w pamięci nadaje się tylko lokalnie; na Vercelu każda instancja funkcji miałaby własną bazę. Ustaw `MONGODB_URI` na MongoDB Atlas (darmowy klaster M0 to replica set i obsługuje transakcje).
 - **Tryb testowy:** na czas testów ustaw `RESERVATION_TTL_SECONDS=120`. Skrypt chaosu ostrzega, gdy `expiresAt` wypada dalej niż za 2 minuty, a ustawiony czas widać też na `/status`.
+- **Etap IV:** w panelu Resend > Webhooks dodaj endpoint `https://<adres>/api/webhooks/resend` (zdarzenia `email.bounced`, `email.delivered`, opcjonalnie `email.failed`), a jego sekret `whsec_…` wpisz w `RESEND_WEBHOOK_SECRET`. Stan widać na `/status`. `vercel.json` ma cron raz dziennie (tyle pozwala darmowy plan); kolejka od niego nie zależy.
 - Na serverless worker nie działa w tle stale: mail wysyła się zaraz po zakupie (`after()`), a resztę zadań obsługuje `GET /api/cron/worker`. Kryteria od workera nie zależą.
 - **Etap III:** `VOUCHERIFY_*`, `RESEND_API_KEY` i `MAIL_FROM` ustaw w Vercel > Settings > Environment Variables (nigdy w repo). Bez nich wdrożenie wstaje, ale punkty i maile są symulowane i widać to na `/status`. Zwroty punktów i naliczenia są zadaniami w kolejce, więc na serverless warto mieć crona na `GET /api/cron/worker`: bez niego kompensacje poczekają do następnego żądania, które obudzi workera.
 
@@ -251,6 +325,7 @@ Skrypt sprawdza zakup bez płatności z etapu I, więc na czas tego testu serwer
 ```
 src/app            strony i route handlers (API)
 src/server         logika serwera: baza, rezerwacje, płatności (Stripe), punkty (Voucherify), poczta (Resend),
+                   lista oczekujących (waitlist.ts, waitlistMail.ts, resendWebhook.ts),
                    kolejka, worker, bezpiecznik, limiter, bulkhead
 src/components     UI: mapa sali, formularz, licznik, bilet, stan systemu
 src/client         klient API odporny na błędy, hooki
