@@ -13,7 +13,8 @@ type Status = {
   inFlight: number;
   pools: { name: string; active: number; queued: number; maxConcurrent: number }[];
   mailer: Breaker;
-  mail: { provider: "resend" | "simulated" };
+  mail: { provider: "resend" | "simulated"; webhookConfigured: boolean };
+  waitlist: { waiting: number; offered: number; done: number; missed: number; left: number };
   loyalty: { configured: boolean; breaker: Breaker; budget: { capacity: number; remaining: number } };
   payments: { configured: boolean; breaker: Breaker };
   queue: {
@@ -115,6 +116,21 @@ export function SystemStatus() {
                 ? " Bez własnej domeny Resend doręcza tylko na adres właściciela konta i adresy testowe."
                 : " Nic nie trafia do prawdziwych skrzynek."}
             </p>
+            <p className={styles.small}>
+              {status.mail.webhookConfigured
+                ? "Webhook Resenda podpięty: odbity mail z ofertą od razu przekazuje miejsce następnej osobie z listy."
+                : "Webhook Resenda niepodpięty (brak RESEND_WEBHOOK_SECRET): o odbitym mailu dowiemy się dopiero, gdy minie czas oferty."}
+            </p>
+          </section>
+
+          <section>
+            <h2>Listy oczekujących</h2>
+            <dl className={styles.stats}>
+              <Stat label="Czeka" value={status.waitlist.waiting} />
+              <Stat label="Ma ofertę" value={status.waitlist.offered} />
+              <Stat label="Kupiło bilet" value={status.waitlist.done} />
+              <Stat label="Przegapiło" value={status.waitlist.missed} warn={status.waitlist.missed > 0} />
+            </dl>
           </section>
 
           <section className={styles.breaker} data-state={status.loyalty.configured ? status.loyalty.breaker.state : "OPEN"}>

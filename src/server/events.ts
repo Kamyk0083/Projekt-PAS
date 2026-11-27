@@ -1,6 +1,7 @@
 import { collections, type EventDoc } from "./db";
 import { config } from "./config";
 import { notFound } from "./errors";
+import { rowsOf, totalSeats } from "@/lib/hall";
 import type { CinemaEvent, EventDetails } from "@/lib/types";
 
 export function toEvent(doc: EventDoc): CinemaEvent {
@@ -36,7 +37,16 @@ export async function takenSeats(eventId: string, now = new Date()): Promise<str
 
 export async function eventDetails(eventId: string): Promise<EventDetails> {
   const doc = await getEventDoc(eventId);
-  return { event: toEvent(doc), takenSeats: await takenSeats(eventId) };
+  const taken = await takenSeats(eventId);
+  return { event: toEvent(doc), takenSeats: taken, soldOut: taken.length >= totalSeats(doc.layout) };
+}
+
+/** Wolne fotele seansu (etap IV: tu trafiają osoby z listy oczekujących). */
+export function freeSeats(doc: EventDoc, taken: string[]): string[] {
+  const set = new Set(taken);
+  return rowsOf(doc.layout).flatMap((row) =>
+    Array.from({ length: doc.layout.seatsPerRow }, (_, i) => `${row}${i + 1}`).filter((id) => !set.has(id)),
+  );
 }
 
 export async function takenCounts(): Promise<Record<string, number>> {

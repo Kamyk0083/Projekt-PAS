@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { ArrowLeft } from "@phosphor-icons/react/dist/ssr";
 import { eventDetails } from "@/server/events";
+import { advanceWaitlist, logAdvanceError } from "@/server/waitlist";
 import { AppError } from "@/server/errors";
 import { config } from "@/server/config";
 import { Poster } from "@/components/Poster";
@@ -14,12 +15,15 @@ import styles from "./page.module.css";
 
 type Props = {
   params: Promise<{ eventId: string }>;
-  searchParams: Promise<{ fotel?: string }>;
+  searchParams: Promise<{ fotel?: string; kolejka?: string }>;
 };
 
 async function load(eventId: string) {
   try {
-    return await eventDetails(decodeURIComponent(eventId));
+    const id = decodeURIComponent(eventId);
+    // Etap IV: fotel zwolniony przed chwilą trafia do kolejki, zanim pokażemy plan sali.
+    await advanceWaitlist(id).catch(logAdvanceError);
+    return await eventDetails(id);
   } catch (err) {
     if (err instanceof AppError && err.status === 404) notFound();
     throw err;
@@ -36,8 +40,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function ScreeningPage({ params, searchParams }: Props) {
   await connection();
   const { eventId } = await params;
-  const { fotel } = await searchParams;
-  const { event, takenSeats } = await load(eventId);
+  const { fotel, kolejka } = await searchParams;
+  const { event, takenSeats, soldOut } = await load(eventId);
 
   return (
     <div className="page">
@@ -71,6 +75,8 @@ export default async function ScreeningPage({ params, searchParams }: Props) {
         event={event}
         initialTaken={takenSeats}
         initialSeat={fotel?.toUpperCase() ?? null}
+        initialSoldOut={soldOut}
+        initialWaitlistId={kolejka && /^[0-9a-f-]{36}$/i.test(kolejka) ? kolejka : null}
         ttlMinutes={Math.max(1, Math.round(config.reservationTtlMs / 60_000))}
       />
     </div>

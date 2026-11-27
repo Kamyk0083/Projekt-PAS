@@ -192,16 +192,21 @@ function Showtime({ screening: s }: { screening: Screening }) {
         <span style={{ width: `${occupancy}%` }} />
       </span>
       <span className={soldOut ? styles.soldOut : styles.freeSeats}>
-        {soldOut ? "Brak miejsc" : `${s.free} ${pluralSeats(s.free)}`}
+        {soldOut ? "Brak miejsc · lista oczekujących" : `${s.free} ${pluralSeats(s.free)}`}
       </span>
     </>
   );
 
+  // Etap IV: wyprzedany seans nie jest ślepą uliczką: prowadzi do listy oczekujących.
   if (soldOut) {
     return (
-      <span className={`${styles.time} ${styles.timeDisabled}`} aria-disabled="true">
+      <Link
+        href={`/seanse/${s.id}`}
+        className={`${styles.time} ${styles.timeSoldOut}`}
+        aria-label={`${formatTime(s.startsAt)}, ${s.hall}, brak miejsc. Zapisz się na listę oczekujących`}
+      >
         {content}
-      </span>
+      </Link>
     );
   }
   return (

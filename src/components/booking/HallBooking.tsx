@@ -1,28 +1,56 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/client/api";
-import { usePolling } from "@/client/hooks";
+import { readStored, usePolling, writeStored } from "@/client/hooks";
 import { isSeatInHall, totalSeats } from "@/lib/hall";
 import type { CinemaEvent, EventDetails } from "@/lib/types";
 import { SeatMap } from "./SeatMap";
 import { BookingPanel, type Notice } from "./BookingPanel";
+import { WaitlistPanel } from "./WaitlistPanel";
 import styles from "./HallBooking.module.css";
 
 type Props = {
   event: CinemaEvent;
   initialTaken: string[];
   initialSeat: string | null;
+  initialSoldOut: boolean;
+  initialWaitlistId: string | null; // ?kolejka=<waitlistId>: link do własnego miejsca w kolejce
   ttlMinutes: number;
 };
 
-export function HallBooking({ event, initialTaken, initialSeat, ttlMinutes }: Props) {
+const WAITLIST_ID = /^[0-9a-f-]{36}$/i;
+const storageKey = (eventId: string) => `kino:waitlist:${eventId}`;
+
+export function HallBooking({ event, initialTaken, initialSeat, initialSoldOut, initialWaitlistId, ttlMinutes }: Props) {
   const [taken, setTaken] = useState(() => new Set(initialTaken));
   const [selected, setSelected] = useState<string | null>(() =>
     initialSeat && isSeatInHall(initialSeat, event.layout) && !initialTaken.includes(initialSeat) ? initialSeat : null,
   );
   const [notice, setNotice] = useState<Notice | null>(null);
   const [stale, setStale] = useState(false);
+  // Etap IV: wyprzedany seans i wpis tej przeglądarki na liście oczekujących.
+  const [soldOut, setSoldOut] = useState(initialSoldOut);
+  const [waitlistId, setWaitlistId] = useState<string | null>(initialWaitlistId);
+
+  useEffect(() => {
+    if (initialWaitlistId) return writeStored(storageKey(event.id), initialWaitlistId);
+    const stored = readStored(storageKey(event.id));
+    if (WAITLIST_ID.test(stored)) setWaitlistId(stored);
+  }, [event.id, initialWaitlistId]);
+
+  const changeWaitlist = useCallback(
+    (id: string | null) => {
+      setWaitlistId(id);
+      writeStored(storageKey(event.id), id ?? "");
+      // Adres z ?kolejka= to link do własnego miejsca w kolejce (np. na innym urządzeniu).
+      const url = new URL(window.location.href);
+      if (id) url.searchParams.set("kolejka", id);
+      else url.searchParams.delete("kolejka");
+      window.history.replaceState(null, "", url);
+    },
+    [event.id],
+  );
 
   const syncUrl = (seat: string | null) => {
     const url = new URL(window.location.href);
@@ -57,6 +85,7 @@ export function HallBooking({ event, initialTaken, initialSeat, ttlMinutes }: Pr
         timeoutMs: 5000,
       });
       applyTaken(data.takenSeats);
+      setSoldOut(data.soldOut);
       setStale(false);
       return true;
     } catch {
@@ -95,6 +124,18 @@ export function HallBooking({ event, initialTaken, initialSeat, ttlMinutes }: Pr
         freeCount={freeCount}
         ttlMinutes={ttlMinutes}
         notice={notice}
+        waitlist={
+          soldOut || waitlistId ? (
+            <WaitlistPanel
+              event={event}
+              waitlistId={waitlistId}
+              soldOut={soldOut}
+              ttlMinutes={ttlMinutes}
+              onChange={changeWaitlist}
+              onSeatsFreed={() => void refresh()}
+            />
+          ) : null
+        }
         onClose={() => select(null)}
         onConflict={(seat, text) => {
           setTaken((prev) => new Set(prev).add(seat));

@@ -63,13 +63,16 @@ afterAll(async () => {
 });
 
 describe("A. wydarzenia i mapa", () => {
-  it("zwraca cały repertuar w 2 salach po 8x10 foteli", async () => {
+  it("zwraca cały repertuar w 2 salach po 8x10 foteli (plus seans testowy etapu IV)", async () => {
     const res = await listEvents(new Request("http://test/api/events"), undefined as never);
     expect(res.status).toBe(200);
-    const events = await res.json();
+    const events: { id: string; hall: string; layout: unknown }[] = await res.json();
     expect(events).toHaveLength(seedData().length);
-    expect(new Set(events.map((e: { hall: string }) => e.hall)).size).toBe(2);
-    for (const e of events) expect(e.layout).toMatchObject({ rows: 8, seatsPerRow: 10 });
+    // Etap IV: kontrakt dokłada wydarzenie testowe z dokładnie dwoma miejscami.
+    const regular = events.filter((e) => e.id !== "waitlist-test");
+    expect(regular).toHaveLength(events.length - 1);
+    expect(new Set(regular.map((e) => e.hall)).size).toBe(2);
+    for (const e of regular) expect(e.layout).toMatchObject({ rows: 8, seatsPerRow: 10 });
   });
 
   it("404 dla nieistniejącego seansu", async () => {

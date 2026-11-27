@@ -70,6 +70,55 @@ export type ReservationDoc = {
   pointsEarned?: number;
   // Płatność, która przyszła, gdy fotel miał już innego właściciela: oddajemy pieniądze.
   refund?: { sessionId: string; paymentIntentId: string; status: "pending" | "succeeded"; refundId?: string };
+  // Etap IV: rezerwacja założona dla osoby z listy oczekujących (oferta miejsca).
+  waitlistId?: string;
+};
+
+// Wpis na liście oczekujących (etap IV). Kolejność wyznacza `seq` (licznik na seans), a nie
+// zegar, więc dwa zapisy w tej samej milisekundzie też mają jednoznaczną kolejność.
+// - waiting: czeka w kolejce,
+// - offered: ma zarezerwowane miejsce (zwykła rezerwacja `reservationId`) i mail z linkiem,
+// - done: kupił bilet, missed: nie zapłacił na czas albo mail do niego nie doszedł, left: wypisał się.
+export type WaitlistStatus = "waiting" | "offered" | "done" | "missed" | "left";
+
+export type WaitlistDoc = {
+  _id: string; // UUID = waitlistId (działa jak link: kto go zna, widzi stan i może się wypisać)
+  eventId: string;
+  email: string;
+  customerName: string;
+  seq: number;
+  status: WaitlistStatus;
+  // true dla waiting i offered: unikalny indeks (eventId, email) tylko dla aktywnych wpisów,
+  // więc ta sama osoba nie zajmie dwóch miejsc w kolejce, ale po wypisaniu może wrócić.
+  active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  offers: number; // ile razy dostał ofertę (powtórka, gdy mail nie wyszedł z naszej winy)
+  // Bieżąca (albo ostatnia) oferta:
+  reservationId?: string;
+  seatId?: string;
+  offeredAt?: Date;
+  // Karta C: termin podany w mailu (ustalany raz, przy pierwszej próbie wysyłki), chwila
+  // przekazania maila do Resenda, jego ID tam i los maila z webhooka.
+  mailDeadline?: Date;
+  notifiedAt?: Date;
+  mailId?: string;
+  deliveredAt?: Date;
+  undeliveredAt?: Date;
+  missedReason?: "timeout" | "undelivered";
+  finishedAt?: Date;
+};
+
+// Licznik kolejności na liście oczekujących danego seansu.
+export type CounterDoc = { _id: string; seq: number };
+
+// Zdarzenia od Resenda (webhook Svix), które już obsłużyliśmy: deduplikacja i ślad.
+export type ResendEventDoc = {
+  _id: string; // svix-id
+  type: string;
+  emailId: string | null;
+  outcome: string;
+  receivedAt: Date;
 };
 
 // Konto punktowe klienta po naszej stronie. Saldo prowadzi Voucherify: tutaj trzymamy
@@ -104,12 +153,13 @@ export type StripeEventDoc = {
 // ticket-email: wysyłka biletu (etap I/II/III).
 // loyalty-earn: naliczenie punktów za zakup; loyalty-release: zwrot punktów, za które
 // nie doszło do zapłaty (kompensacja). Oba dotykają Voucherify, więc idą przez kolejkę.
-export type JobTopic = "ticket-email" | "loyalty-earn" | "loyalty-release";
+// waitlist-offer (etap IV): mail do osoby z listy, która dostała miejsce (karta B -> karta C).
+export type JobTopic = "ticket-email" | "loyalty-earn" | "loyalty-release" | "waitlist-offer";
 
 export type JobDoc = {
   _id: string;
   topic: JobTopic;
-  payload: { reservationId: string; email?: string; points?: number; attempt?: number };
+  payload: { reservationId: string; email?: string; points?: number; attempt?: number; waitlistId?: string };
   status: "pending" | "processing" | "done" | "dead";
   deliveryCount: number;
   visibleAt: Date;
@@ -136,6 +186,9 @@ export type MailDoc = {
   body: string;
   sentAt: Date;
   providerId?: string; // ID wiadomości u dostawcy (Resend), do powiązania ze zdarzeniami
+  // Los maila z webhooka Resenda (etap IV).
+  deliveredAt?: Date;
+  bouncedAt?: Date;
 };
 
 export type RateBucketDoc = {
@@ -156,6 +209,9 @@ export type Collections = {
   stripeEvents: Collection<StripeEventDoc>;
   loyaltyAccounts: Collection<LoyaltyAccountDoc>;
   loyaltySim: Collection<LoyaltySimDoc>;
+  waitlist: Collection<WaitlistDoc>;
+  counters: Collection<CounterDoc>;
+  resendEvents: Collection<ResendEventDoc>;
 };
 
 type DbState = { client: MongoClient; db: Db; cols: Collections; memory: boolean };
@@ -204,6 +260,9 @@ async function init(): Promise<DbState> {
     stripeEvents: db.collection<StripeEventDoc>("stripeEvents"),
     loyaltyAccounts: db.collection<LoyaltyAccountDoc>("loyaltyAccounts"),
     loyaltySim: db.collection<LoyaltySimDoc>("loyaltySim"),
+    waitlist: db.collection<WaitlistDoc>("waitlist"),
+    counters: db.collection<CounterDoc>("counters"),
+    resendEvents: db.collection<ResendEventDoc>("resendEvents"),
   };
   await ensureIndexes(cols);
   await seedEvents(cols.events);
@@ -227,6 +286,17 @@ async function ensureIndexes(cols: Collections) {
     cols.loyaltySim.createIndex({ email: 1 }),
     // Stripe ponawia zdarzenia najwyżej przez 3 dni, więc 30 dni pamięci w zupełności wystarcza.
     cols.stripeEvents.createIndex({ receivedAt: 1 }, { expireAfterSeconds: 30 * 24 * 3600 }),
+    // Etap IV: kolejka seansu w kolejności zapisu i jeden aktywny wpis na e-mail w seansie.
+    cols.waitlist.createIndex({ eventId: 1, status: 1, seq: 1 }),
+    cols.waitlist.createIndex(
+      { eventId: 1, email: 1 },
+      { unique: true, partialFilterExpression: { active: true } },
+    ),
+    cols.waitlist.createIndex({ reservationId: 1 }, { sparse: true }),
+    // Webhook Resenda wskazuje mail po jego ID u dostawcy.
+    cols.mails.createIndex({ providerId: 1 }, { sparse: true }),
+    // Svix ponawia webhook najwyżej przez kilka dni.
+    cols.resendEvents.createIndex({ receivedAt: 1 }, { expireAfterSeconds: 30 * 24 * 3600 }),
   ]);
 }
 

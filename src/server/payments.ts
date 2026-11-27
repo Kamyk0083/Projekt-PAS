@@ -5,7 +5,7 @@ import { AppError, badRequest, notFound } from "./errors";
 import { getEventDoc } from "./events";
 import { loyaltyEarnJob, loyaltyReleaseJob, ticketEmailJob } from "./jobs";
 import { spendMarker, spendPoints } from "./loyalty";
-import { isPaid, parseReservationId, seatKey, ticketCode } from "./reservations";
+import { isPaid, markWaitlistDone, parseReservationId, seatKey, ticketCode } from "./reservations";
 import { callStripe } from "./stripe";
 import { formatDay, formatPrice, formatTime } from "@/lib/format";
 import { seatLabel } from "@/lib/hall";
@@ -458,6 +458,8 @@ async function fulfill(session: Stripe.Checkout.Session): Promise<Outcome> {
         { session: dbSession, ...(attempt ? { arrayFilters: [{ "a.n": attempt.n }] } : {}) },
       );
       if (updated.matchedCount !== 1) throw new AlreadyHandled();
+      // Etap IV: miejsce z listy oczekujących kupione, wpis kończy się jako "done".
+      await markWaitlistDone(doc, now, dbSession);
 
       const queue: JobDoc[] = [ticketEmailJob(doc._id, now)];
       // Punkty za zakup liczymy tylko od części zapłaconej kartą (karta A).

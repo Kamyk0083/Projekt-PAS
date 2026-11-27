@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import type { ClientSession } from "mongodb";
 import { z } from "zod";
 import { collections, duplicateKeyField, getDb, isDuplicateKey, type ReservationDoc } from "./db";
 import { config } from "./config";
@@ -173,6 +174,30 @@ export function parseReservationId(id: string) {
 
 export const isPaid = (doc: Pick<ReservationDoc, "status">) => doc.status === "paid" || doc.status === "purchased";
 
+/**
+ * Etap IV: opłacona rezerwacja z oferty listy oczekujących kończy wpis jako "done" (kupił bilet).
+ * Wołane w transakcji opłacenia, więc bilet i stan wpisu zmieniają się razem.
+ * Warunek na `reservationId` chroni nowszą ofertę, gdy spóźniona płatność dotyczy starej.
+ */
+export async function markWaitlistDone(doc: ReservationDoc, now: Date, session: ClientSession) {
+  if (!doc.waitlistId) return;
+  const { waitlist } = await collections();
+  await waitlist.updateOne(
+    { _id: doc.waitlistId, $or: [{ reservationId: doc._id }, { status: "waiting" }] },
+    {
+      $set: {
+        status: "done",
+        active: false,
+        reservationId: doc._id,
+        seatId: doc.seatId,
+        finishedAt: now,
+        updatedAt: now,
+      },
+    },
+    { session },
+  );
+}
+
 // Zakup z etapu I (POST /purchase). Od etapu II bilet wydaje dopiero opłacenie w Stripe
 // (webhook, src/server/payments.ts), więc tu oddajemy tylko kod już opłaconej rezerwacji.
 // Stara ścieżka "kod bez płatności" działa wyłącznie z LEGACY_PURCHASE_WITHOUT_PAYMENT=true.
@@ -231,6 +256,7 @@ async function legacyPurchase(reservationId: string): Promise<{ code: string; re
       }
 
       await jobs.insertOne(ticketEmailJob(reservationId, now), { session });
+      await markWaitlistDone(updated, now, session);
       result = { code, replayed: false };
     });
     return result!;
@@ -239,7 +265,7 @@ async function legacyPurchase(reservationId: string): Promise<{ code: string; re
   }
 }
 
-function maskEmail(email: string): string {
+export function maskEmail(email: string): string {
   const [local, domain] = email.split("@");
   if (!domain) return email;
   const visible = local.slice(0, Math.min(2, local.length));
@@ -248,7 +274,7 @@ function maskEmail(email: string): string {
 
 export async function getReservation(rawId: string): Promise<ReservationView> {
   const reservationId = parseReservationId(rawId);
-  const { reservations, jobs } = await collections();
+  const { reservations, jobs, mails } = await collections();
   const doc = await reservations.findOne({ _id: reservationId }, { maxTimeMS: config.dbOpTimeoutMs });
   if (!doc) throw notFound("rezerwacja");
 
@@ -264,6 +290,11 @@ export async function getReservation(rawId: string): Promise<ReservationView> {
   if (status === "paid") {
     const job = await jobs.findOne({ _id: `ticket-email:${reservationId}` }, { projection: { status: 1 } });
     emailStatus = job?.status === "done" ? "sent" : job?.status === "dead" ? "failed" : "pending";
+    // Etap IV: Resend może zgłosić webhookiem, że wysłany mail się odbił.
+    if (emailStatus === "sent") {
+      const mail = await mails.findOne({ _id: `ticket-email:${reservationId}` }, { projection: { bouncedAt: 1 } });
+      if (mail?.bouncedAt) emailStatus = "failed";
+    }
   }
 
   // Rozliczenie punktów (etap III). Przed zapłatą pokazujemy punkty zdjęte na bieżącą próbę
@@ -300,6 +331,7 @@ export async function getReservation(rawId: string): Promise<ReservationView> {
     purchasedAt: doc.purchasedAt?.toISOString() ?? null,
     refund: doc.refund?.status ?? null,
     emailStatus,
+    fromWaitlist: Boolean(doc.waitlistId),
     event: toEvent(event),
     serverTime: now.toISOString(),
   };

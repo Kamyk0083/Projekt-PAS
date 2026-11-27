@@ -20,6 +20,8 @@ type Props = {
   freeCount: number;
   ttlMinutes: number;
   notice: Notice | null;
+  // Etap IV: karta listy oczekujących (wyprzedany seans albo własny wpis w kolejce).
+  waitlist?: React.ReactNode;
   onClose: () => void;
   onConflict: (seat: string, message: string) => void;
 };
@@ -33,14 +35,15 @@ function validate(name: string, email: string) {
   };
 }
 
-export function BookingPanel({ event, selected, freeCount, ttlMinutes, notice, onClose, onConflict }: Props) {
+export function BookingPanel({ event, selected, freeCount, ttlMinutes, notice, waitlist, onClose, onConflict }: Props) {
   const isDesktop = useMediaQuery("(min-width: 960px)", true);
   const reduce = useReducedMotion();
 
   return (
     <aside className={styles.panel} aria-label="Rezerwacja fotela">
       <div className={styles.intro}>
-        {!selected && (
+        {!selected && waitlist}
+        {!selected && !waitlist && (
           <div className={styles.empty}>
             <h2>Wybierz fotel</h2>
             <p>

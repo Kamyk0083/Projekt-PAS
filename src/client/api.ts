@@ -20,7 +20,7 @@ export class ApiError extends Error {
 }
 
 type Options = {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "DELETE";
   body?: unknown;
   idempotencyKey?: string;
   idempotent?: boolean; // czy wolno bezpiecznie ponowić
